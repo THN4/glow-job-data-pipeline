@@ -1,0 +1,13 @@
+careers:
+  data_engineer:
+    career_name: Data Engineer
+    queries:
+      - Data Engineer
+      - Junior Data Engineer
+      - Data Platform Engineer
+  backend_engineer:
+    career_name: Backend Engineer
+    queries:
+      - Backend Engineer
+      - Backend Developer
+      - Backend Software Engineer
