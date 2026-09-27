@@ -1,11 +1,11 @@
 import pytest
 from requests import HTTPError
 
-from src.extract.extract_single_query import extract_search_jobs
+from src.extract.extract_single_query import extract_single_query
 from src.config.settings import JSearchSettings
 
 
-def test_extract_search_jobs_success(requests_mock, monkeypatch):
+def test_extract_single_query_success(requests_mock, monkeypatch):
     # 1. Arrange
     fake_response = {
         "status": "OK",
@@ -31,7 +31,7 @@ def test_extract_search_jobs_success(requests_mock, monkeypatch):
     monkeypatch.setenv(settings.api_key_env, "test-api-key")
     requests_mock.get(settings.url, json=fake_response, status_code=200)
 
-    response_data = extract_search_jobs(
+    response_data = extract_single_query(
         query="Data Engineer",
         country="TH",
         settings=settings,
@@ -44,7 +44,7 @@ def test_extract_search_jobs_success(requests_mock, monkeypatch):
     assert requests_mock.last_request.headers["X-RapidAPI-Key"] == "test-api-key"
     
 
-def test_extract_search_jobs_failure(requests_mock, monkeypatch):
+def test_extract_single_query_failure(requests_mock, monkeypatch):
     settings = JSearchSettings(
         method="GET",
         url="https://example.test/search-v2",
@@ -58,7 +58,7 @@ def test_extract_search_jobs_failure(requests_mock, monkeypatch):
     requests_mock.get(settings.url, status_code=500)
 
     with pytest.raises(HTTPError):
-        extract_search_jobs(
+        extract_single_query(
             query="Data Engineer",
             country="TH",
             settings=settings,

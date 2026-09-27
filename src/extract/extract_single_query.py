@@ -3,10 +3,9 @@ import os
 import requests
 
 from src.config.settings import JSearchSettings
-from src.config.settings import load_settings
 
 
-def extract_search_jobs(
+def extract_single_query(
     query: str,
     country: str,
     settings: JSearchSettings,
@@ -36,16 +35,3 @@ def extract_search_jobs(
     )
     response.raise_for_status()
     return response.json()
-
-# Local module testing block
-if __name__ == "__main__":
-    
-    settings = load_settings()
-    
-    response_data = extract_search_jobs(
-        query="Data Engineer",
-        country=settings.pipeline.country,
-        settings=settings.jsearch,
-    )
-    
-    print(response_data)
