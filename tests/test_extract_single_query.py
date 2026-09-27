@@ -6,7 +6,6 @@ from src.config.settings import JSearchSettings
 
 
 def test_extract_single_query_success(requests_mock, monkeypatch):
-    # 1. Arrange
     fake_response = {
         "status": "OK",
         "data": {
@@ -17,7 +16,6 @@ def test_extract_single_query_success(requests_mock, monkeypatch):
         },
     }
 
-    # 2. Act
     settings = JSearchSettings(
         method="GET",
         url="https://example.test/search-v2",
@@ -37,7 +35,6 @@ def test_extract_single_query_success(requests_mock, monkeypatch):
         settings=settings,
     )
 
-    # 3. Assert
     assert response_data == fake_response
     assert requests_mock.last_request.qs["query"] == ["Data Engineer"]
     assert requests_mock.last_request.qs["country"] == ["TH"]
@@ -58,6 +55,29 @@ def test_extract_single_query_failure(requests_mock, monkeypatch):
     requests_mock.get(settings.url, status_code=500)
 
     with pytest.raises(HTTPError):
+        extract_single_query(
+            query="Data Engineer",
+            country="TH",
+            settings=settings,
+        )
+
+    assert requests_mock.call_count == 1
+    
+
+def test_extract_single_query_rate_limit(requests_mock, monkeypatch):
+    settings = JSearchSettings(
+        method="GET",
+        url="https://example.test/search-v2",
+        host="example.test",
+        content_type="application/json",
+        api_key_env="JSEARCH_API_KEY",
+        num_pages=1,
+        date_posted="all",
+    )
+    monkeypatch.setenv(settings.api_key_env, "test-api-key")
+    requests_mock.get(settings.url, status_code=429, headers={"Retry-After": "60"})
+
+    with pytest.raises(HTTPError, match="JSearch rate limit exceeded"):
         extract_single_query(
             query="Data Engineer",
             country="TH",

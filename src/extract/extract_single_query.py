@@ -33,5 +33,13 @@ def extract_single_query(
         params=params,
         timeout=30,
     )
+
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "unspecified")
+        raise requests.HTTPError(
+            f"JSearch rate limit exceeded (HTTP 429). Retry-After: {retry_after}",
+            response=response,
+        )
+
     response.raise_for_status()
     return response.json()
