@@ -1,7 +1,7 @@
 import pytest
 from requests import HTTPError
 
-from src.extract.jsearch_client import extract_search_jobs
+from src.extract.extract_single_query import extract_search_jobs
 from src.config.settings import JSearchSettings
 
 
