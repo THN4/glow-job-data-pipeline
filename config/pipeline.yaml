@@ -1,0 +1,5 @@
+country: TH
+time_window_days: 90
+results_per_query: 10
+max_pages: 5
+minimum_description_length: 100
