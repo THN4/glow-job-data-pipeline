@@ -25,9 +25,21 @@ class CareerSettings:
 
 
 @dataclass(frozen=True)
+class JSearchSettings:
+    method: str
+    url: str
+    host: str
+    content_type: str
+    api_key_env: str
+    num_pages: int
+    date_posted: str
+
+
+@dataclass(frozen=True)
 class Settings:
     pipeline: PipelineSettings
     careers: dict[str, CareerSettings]
+    jsearch: JSearchSettings
 
 
 def _read_yaml(path: Path) -> dict:
@@ -44,9 +56,22 @@ def load_settings(config_dir: Path | None = None) -> Settings:
     directory = config_dir if config_dir is not None else PROJECT_ROOT / "config"
     pipeline_data = _read_yaml(directory / "pipeline.yaml")
     careers_data = _read_yaml(directory / "careers.yaml")
+    jsearch_data = pipeline_data.pop(
+        "jsearch",
+        {
+            "method": "GET",
+            "url": "https://jsearch.p.rapidapi.com/search-v2",
+            "host": "jsearch.p.rapidapi.com",
+            "content_type": "application/json",
+            "api_key_env": "JSEARCH_API_KEY",
+            "num_pages": 1,
+            "date_posted": "all",
+        },
+    )
 
     try:
         pipeline = PipelineSettings(**pipeline_data)
+        jsearch = JSearchSettings(**jsearch_data)
         career_entries = careers_data["careers"]
         if not isinstance(career_entries, dict) or not career_entries:
             raise ValueError("careers must be a non-empty mapping")
@@ -67,6 +92,26 @@ def load_settings(config_dir: Path | None = None) -> Settings:
 
     if not isinstance(pipeline.country, str) or not pipeline.country.strip():
         raise ValueError("Pipeline settings require a country")
+    if any(
+        not isinstance(value, str) or not value.strip()
+        for value in (
+            jsearch.method,
+            jsearch.url,
+            jsearch.host,
+            jsearch.content_type,
+            jsearch.api_key_env,
+            jsearch.date_posted,
+        )
+    ):
+        raise ValueError("JSearch settings require non-empty text values")
+    if jsearch.method.upper() != "GET":
+        raise ValueError("JSearch method must be GET")
+    if (
+        not isinstance(jsearch.num_pages, int)
+        or isinstance(jsearch.num_pages, bool)
+        or jsearch.num_pages <= 0
+    ):
+        raise ValueError("JSearch num_pages must be a positive integer")
     for value in (
         pipeline.time_window_days,
         pipeline.results_per_query,
@@ -84,4 +129,4 @@ def load_settings(config_dir: Path | None = None) -> Settings:
         ):
             raise ValueError("Every career requires a name and at least one search query")
 
-    return Settings(pipeline=pipeline, careers=careers)
+    return Settings(pipeline=pipeline, careers=careers, jsearch=jsearch)
