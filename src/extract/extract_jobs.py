@@ -35,8 +35,8 @@ def extract_jobs(
 
             response_data = extract_single_query(
                 query=query,
-                country=settings.pipeline.country,
-                settings=settings.jsearch,
+                search_settings=settings.search,
+                jsearch_settings=settings.jsearch,
             )
 
             logger.info(

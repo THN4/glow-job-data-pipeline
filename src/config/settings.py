@@ -1,4 +1,4 @@
-﻿"""Load the local pipeline and career configuration."""
+"""Load the local search, validation, and provider configuration."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,14 +7,19 @@ import yaml
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SUPPORTED_DATE_POSTED = {"all", "today", "3days", "week", "month"}
 
 
 @dataclass(frozen=True)
-class PipelineSettings:
+class SearchSettings:
     country: str
-    time_window_days: int
-    results_per_query: int
     max_pages: int
+    date_posted: str
+
+
+@dataclass(frozen=True)
+class ValidationSettings:
+    time_window_days: int
     minimum_description_length: int
 
 
@@ -31,13 +36,12 @@ class JSearchSettings:
     host: str
     content_type: str
     api_key_env: str
-    num_pages: int
-    date_posted: str
 
 
 @dataclass(frozen=True)
 class Settings:
-    pipeline: PipelineSettings
+    search: SearchSettings
+    validation: ValidationSettings
     careers: dict[str, CareerSettings]
     jsearch: JSearchSettings
 
@@ -56,7 +60,7 @@ def load_settings(config_dir: Path | None = None) -> Settings:
     directory = config_dir if config_dir is not None else PROJECT_ROOT / "config"
     pipeline_data = _read_yaml(directory / "pipeline.yaml")
     careers_data = _read_yaml(directory / "careers.yaml")
-    jsearch_data = pipeline_data.pop(
+    jsearch_data = pipeline_data.get(
         "jsearch",
         {
             "method": "GET",
@@ -64,13 +68,12 @@ def load_settings(config_dir: Path | None = None) -> Settings:
             "host": "jsearch.p.rapidapi.com",
             "content_type": "application/json",
             "api_key_env": "JSEARCH_API_KEY",
-            "num_pages": 1,
-            "date_posted": "all",
         },
     )
 
     try:
-        pipeline = PipelineSettings(**pipeline_data)
+        search = SearchSettings(**pipeline_data["search"])
+        validation = ValidationSettings(**pipeline_data["validation"])
         jsearch = JSearchSettings(**jsearch_data)
         career_entries = careers_data["careers"]
         if not isinstance(career_entries, dict) or not career_entries:
@@ -90,8 +93,22 @@ def load_settings(config_dir: Path | None = None) -> Settings:
     except (KeyError, TypeError) as exc:
         raise ValueError(f"Invalid configuration in {directory}: {exc}") from exc
 
-    if not isinstance(pipeline.country, str) or not pipeline.country.strip():
-        raise ValueError("Pipeline settings require a country")
+    if not isinstance(search.country, str) or not search.country.strip():
+        raise ValueError("Search settings require a country")
+    if (
+        not isinstance(search.max_pages, int)
+        or isinstance(search.max_pages, bool)
+        or search.max_pages <= 0
+    ):
+        raise ValueError("Search max_pages must be a positive integer")
+    if (
+        not isinstance(search.date_posted, str)
+        or search.date_posted not in SUPPORTED_DATE_POSTED
+    ):
+        raise ValueError(
+            "Search date_posted must be one of: "
+            + ", ".join(sorted(SUPPORTED_DATE_POSTED))
+        )
     if any(
         not isinstance(value, str) or not value.strip()
         for value in (
@@ -100,26 +117,17 @@ def load_settings(config_dir: Path | None = None) -> Settings:
             jsearch.host,
             jsearch.content_type,
             jsearch.api_key_env,
-            jsearch.date_posted,
         )
     ):
         raise ValueError("JSearch settings require non-empty text values")
     if jsearch.method.upper() != "GET":
         raise ValueError("JSearch method must be GET")
-    if (
-        not isinstance(jsearch.num_pages, int)
-        or isinstance(jsearch.num_pages, bool)
-        or jsearch.num_pages <= 0
-    ):
-        raise ValueError("JSearch num_pages must be a positive integer")
     for value in (
-        pipeline.time_window_days,
-        pipeline.results_per_query,
-        pipeline.max_pages,
-        pipeline.minimum_description_length,
+        validation.time_window_days,
+        validation.minimum_description_length,
     ):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-            raise ValueError("Pipeline limits must be positive integers")
+            raise ValueError("Validation limits must be positive integers")
     for career in careers.values():
         if (
             not isinstance(career.career_name, str)
@@ -129,4 +137,9 @@ def load_settings(config_dir: Path | None = None) -> Settings:
         ):
             raise ValueError("Every career requires a name and at least one search query")
 
-    return Settings(pipeline=pipeline, careers=careers, jsearch=jsearch)
+    return Settings(
+        search=search,
+        validation=validation,
+        careers=careers,
+        jsearch=jsearch,
+    )

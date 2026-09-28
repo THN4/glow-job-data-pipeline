@@ -1,8 +1,11 @@
-﻿country: TH
-time_window_days: 90
-results_per_query: 10
-max_pages: 1
-minimum_description_length: 100
+search:
+  country: TH
+  max_pages: 1
+  date_posted: all
+
+validation:
+  time_window_days: 90
+  minimum_description_length: 100
 
 jsearch:
   method: GET
@@ -10,5 +13,3 @@ jsearch:
   host: jsearch.p.rapidapi.com
   content_type: application/json
   api_key_env: JSEARCH_API_KEY
-  num_pages: 1
-  date_posted: all
