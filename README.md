@@ -2,7 +2,7 @@
 
 This repository collects recent Thailand job postings and prepares structured job-market data for Glow-Job. The intended flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, career-level aggregation, and PostgreSQL loading. User-specific features belong to other services.
 
-The repository is currently at the **project setup** stage. The entry point checks configuration; it does not fetch jobs or connect to a database yet. The full scope is in [project-spec.md](project-spec.md), and branch conventions are in [git-workflow.md](git-workflow.md).
+The current pipeline can fetch JSearch results and preserve them as raw JSON under `data/raw/`. It can also replay a complete saved run without calling the API. Database loading and later transformation stages are still future work. The full scope is in [project-spec.md](project-spec.md), and branch conventions are in [git-workflow.md](git-workflow.md).
 
 ## Local setup
 
@@ -16,6 +16,8 @@ py -m venv venv
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 python -m src.main
+# Replay an existing run (replace the value with a run folder name under data/raw/)
+python -m src.main --replay-run-id 20260928T120000000000Z
 python -m pytest
 ```
 
@@ -27,6 +29,8 @@ venv\Scripts\activate
 python -m pip install -r requirements.txt
 copy .env.example .env
 python -m src.main
+rem Replay an existing run (replace the value with a run folder name under data/raw/)
+python -m src.main --replay-run-id 20260928T120000000000Z
 python -m pytest
 ```
 
