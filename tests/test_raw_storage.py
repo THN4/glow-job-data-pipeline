@@ -88,3 +88,12 @@ def test_load_raw_result_rejects_incomplete_run(tmp_path):
             run_id=run_id,
             expected_query_count=3,
         )
+        
+
+def test_load_raw_result_raises_when_run_id_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError, match="No raw data found"):
+        load_raw_result(
+            output_dir=tmp_path,
+            run_id="missing-run",
+            expected_query_count=6,
+        )
