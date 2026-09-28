@@ -37,7 +37,7 @@ def main(
         logger.info(
             "Starting job extraction: run_id=%s, country=%s, careers=%d",
             run_id,
-            settings.pipeline.country,
+            settings.search.country,
             len(settings.careers),
         )
         results = extract_jobs(

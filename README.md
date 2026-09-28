@@ -34,7 +34,7 @@ python -m src.main --replay-run-id 20260928T120000000000Z
 python -m pytest
 ```
 
-Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` for collection limits and `config/careers.yaml` to add career search queries without changing Python code.
+Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` to configure `search` request parameters and `validation` thresholds; edit `config/careers.yaml` to add career search queries without changing Python code. The validation thresholds are loaded and checked now; job-level filtering will be implemented in the validation phase.
 
 ## Layout
 

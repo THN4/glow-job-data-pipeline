@@ -9,8 +9,8 @@ def test_extract_jobs_calls_client_for_each_query(monkeypatch, tmp_path):
     settings = load_settings()
     calls = []
 
-    def fake_search_jobs(query, country, settings):
-        calls.append((query, country))
+    def fake_search_jobs(query, search_settings, jsearch_settings):
+        calls.append((query, search_settings.country))
         return {"data": [{"query": query}]}
 
     monkeypatch.setattr(
@@ -42,7 +42,7 @@ def test_extract_jobs_keeps_saved_results_when_query_fails(monkeypatch, tmp_path
     settings = load_settings()
     calls = []
 
-    def fake_search_jobs(query, country, settings):
+    def fake_search_jobs(query, search_settings, jsearch_settings):
         calls.append(query)
 
         if len(calls) == 3:
