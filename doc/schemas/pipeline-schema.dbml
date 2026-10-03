@@ -1,0 +1,208 @@
+Project glow_job_data_pipeline {
+  database_type: 'PostgreSQL'
+  Note: 'Pipeline-only view of the whole-system schema. Includes pipeline-owned core reference data, market data, and ingestion tracking; excludes app and knowledge product domains. This DBML is a design artifact and does not create or migrate tables.'
+}
+
+Enum requirement_type {
+  required
+  preferred
+  optional
+  unknown
+}
+
+Enum proficiency_level {knowledge 
+  beginner
+  intermediate
+  advanced
+  expert
+  unknown
+}
+
+Enum importance_tier {
+  core
+  important
+  optional
+  unknown
+}
+
+Enum ingestion_status {
+  pending
+  running
+  completed
+  failed
+}
+
+// CORE reference data required to classify and normalize market records.
+Table core.companies {
+  company_id bigint [pk, increment]
+  company_name text [not null]
+  normalized_name text
+  company_website text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    normalized_name [name: 'ix_companies_normalized_name']
+  }
+}
+
+Table core.careers {
+  career_id bigint [pk, increment]
+  slug text [not null, unique, note: 'Stable key such as data_engineer']
+  career_name text [not null]
+  description text
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table core.career_profiles {
+  career_profile_id bigint [pk, increment]
+  career_id bigint [not null]
+  slug text [not null, unique, note: 'Career and seniority, such as junior_data_engineer']
+  profile_name text [not null]
+  seniority_level text [not null, note: 'Examples: junior, mid, senior, general']
+  description text
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    career_id [name: 'ix_career_profiles_career_id']
+  }
+}
+
+Table core.skills {
+  skill_id bigint [pk, increment]
+  skill_name text [not null, unique]
+  skill_category text
+  description text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table core.skill_aliases {
+  alias_id bigint [pk, increment]
+  skill_id bigint [not null]
+  alias text [not null, unique]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+// MARKET ingestion. Raw provider payloads remain files in local storage/S3;
+// these tables represent the structured and deduplicated records derived from them.
+Table market.job_postings {
+  job_id bigint [pk, increment]
+  provider_job_id text [note: 'Provider identifier; may be null if unavailable']
+  company_id bigint
+  career_profile_id bigint [not null]
+  job_title text [not null]
+  normalized_job_title text
+  job_description text
+  location text
+  city text
+  state text
+  country char(2)
+  employment_type text
+  provider text [not null, default: 'jsearch']
+  publisher text [note: 'Publisher reported by the provider; distinct from provider']
+  source_url text
+  posted_at timestamptz
+  collected_at timestamptz [not null, default: `now()`]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_job_id) [unique, name: 'uq_job_postings_provider_job']
+    career_profile_id [name: 'ix_job_postings_career_profile_id']
+    company_id [name: 'ix_job_postings_company_id']
+    posted_at [name: 'ix_job_postings_posted_at']
+  }
+}
+
+Table market.job_search_matches {
+  job_id bigint [not null]
+  run_id bigint [not null]
+  career_profile_id bigint [not null]
+  search_query text [not null]
+  collected_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (job_id, run_id, search_query) [pk]
+    run_id [name: 'ix_job_search_matches_run_id']
+  }
+
+  Note: 'Records which query/run returned a posting. One deduplicated job can match multiple queries.'
+}
+
+Table market.job_skills {
+  job_id bigint [not null]
+  skill_id bigint [not null]
+  requirement_type requirement_type [not null, default: 'unknown']
+  proficiency_level proficiency_level
+  importance_weight numeric(4, 3)
+  confidence numeric(4, 3)
+  evidence_text text
+  extraction_method text [note: 'Examples: llm, rule, hybrid']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (job_id, skill_id) [pk]
+  }
+}
+
+Table market.career_skill_stats {
+  career_profile_id bigint [not null]
+  skill_id bigint [not null]
+  analysis_start_date date [not null]
+  analysis_end_date date [not null]
+  demand_count integer [not null]
+  total_jobs integer [not null]
+  demand_percentage numeric(5, 2) [not null]
+  required_count integer [not null, default: 0]
+  preferred_count integer [not null, default: 0]
+  optional_count integer [not null, default: 0]
+  weighted_demand_score numeric(8, 4)
+  target_level proficiency_level
+  target_level_confidence numeric(4, 3)
+  level_observation_count integer [not null, default: 0]
+  importance_tier importance_tier [not null, default: 'unknown']
+  last_updated timestamptz [not null, default: `now()`]
+
+  indexes {
+    (career_profile_id, skill_id, analysis_start_date, analysis_end_date) [pk]
+  }
+}
+
+// SYSTEM ingestion tracking. run_key maps the current pipeline's external run ID
+// to the database-generated primary key used by job_search_matches.
+Table system.ingestion_runs {
+  run_id bigint [pk, increment]
+  run_key text [unique, note: 'External pipeline run identifier, if available']
+  source text [not null]
+  career_profile_id bigint
+  raw_storage_key text [note: 'Optional location of raw run data in S3 or local storage']
+  started_at timestamptz [not null, default: `now()`]
+  finished_at timestamptz
+  jobs_fetched integer [not null, default: 0]
+  jobs_inserted integer [not null, default: 0]
+  jobs_updated integer [not null, default: 0]
+  jobs_failed integer [not null, default: 0]
+  status ingestion_status [not null, default: 'pending']
+  error_message text
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Ref: core.career_profiles.career_id > core.careers.career_id
+Ref: core.skill_aliases.skill_id > core.skills.skill_id
+
+Ref: market.job_postings.company_id > core.companies.company_id
+Ref: market.job_postings.career_profile_id > core.career_profiles.career_profile_id
+Ref: market.job_search_matches.job_id > market.job_postings.job_id
+Ref: market.job_search_matches.run_id > system.ingestion_runs.run_id
+Ref: market.job_search_matches.career_profile_id > core.career_profiles.career_profile_id
+Ref: market.job_skills.job_id > market.job_postings.job_id
+Ref: market.job_skills.skill_id > core.skills.skill_id
+Ref: market.career_skill_stats.career_profile_id > core.career_profiles.career_profile_id
+Ref: market.career_skill_stats.skill_id > core.skills.skill_id
+
+Ref: system.ingestion_runs.career_profile_id > core.career_profiles.career_profile_id
