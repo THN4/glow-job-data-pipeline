@@ -10,6 +10,7 @@ from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
 from src.storage.raw_storage import load_raw_result
+from src.transform.job_cleaner import clean_jobs
 from src.validation.job_validator import validate_jobs
 
 
@@ -18,7 +19,7 @@ def main(
     replay_run_id: str | None = None,
     raw_output_dir: Path = Path("data/raw"),
 ) -> list[dict[str, object]]:
-    """Load a previous raw run or fetch and save a new one."""
+    """Load or fetch raw data, then return validated and cleaned job records."""
     configure_logging()
     logger = logging.getLogger(__name__)
     settings = load_settings()
@@ -63,7 +64,21 @@ def main(
         )
         logger.warning("Rejected job reasons: %s", dict(reason_counts))
 
-    return results
+    cleaned_jobs, cleaning_rejections = clean_jobs(valid_jobs, settings)
+    logger.info(
+        "Cleaning completed: cleaned_jobs=%d, rejected_after_cleaning=%d",
+        len(cleaned_jobs),
+        len(cleaning_rejections),
+    )
+    if cleaning_rejections:
+        reason_counts = Counter(
+            error
+            for rejected_job in cleaning_rejections
+            for error in rejected_job["errors"]
+        )
+        logger.warning("Cleaning rejection reasons: %s", dict(reason_counts))
+
+    return cleaned_jobs
 
 
 if __name__ == "__main__":

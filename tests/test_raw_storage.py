@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 import pytest
 
 from src.storage.raw_storage import load_raw_result, save_raw_result
@@ -68,6 +69,25 @@ def test_load_raw_result_preserves_metadata(tmp_path):
     assert loaded_result["query"] == "Data Engineer"
     assert loaded_result["response"] == result["response"]
     assert loaded_result["collected_at"] == saved_data["collected_at"]
+
+
+def test_save_raw_result_uses_supplied_collection_time(tmp_path):
+    collected_at = datetime(2026, 10, 3, 12, 30, tzinfo=timezone.utc)
+    file_path = save_raw_result(
+        result={
+            "career_slug": "data_engineer",
+            "career_name": "Data Engineer",
+            "query": "Data Engineer",
+            "response": {"data": []},
+        },
+        output_dir=tmp_path,
+        run_id="test-run-time",
+        query_number=1,
+        collected_at=collected_at,
+    )
+
+    saved_data = json.loads(file_path.read_text(encoding="utf-8"))
+    assert saved_data["collected_at"] == collected_at.isoformat()
 
 
 def test_load_raw_result_rejects_incomplete_run(tmp_path):

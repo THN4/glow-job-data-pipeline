@@ -8,9 +8,14 @@ def save_raw_result(
     output_dir: Path,
     run_id: str,
     query_number: int,
+    *,
+    collected_at: datetime | None = None,
 ) -> Path:
 
-    collected_at = datetime.now(timezone.utc)
+    collected_at = collected_at or datetime.now(timezone.utc)
+    if collected_at.tzinfo is None:
+        collected_at = collected_at.replace(tzinfo=timezone.utc)
+    collected_at = collected_at.astimezone(timezone.utc)
     career_slug = str(result["career_slug"])
     date_partition = Path(collected_at.strftime("%Y/%m/%d"))
 
