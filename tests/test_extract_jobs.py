@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone
 from requests import HTTPError
 
 from src.config.settings import load_settings
@@ -34,6 +35,9 @@ def test_extract_jobs_calls_client_for_each_query(monkeypatch, tmp_path):
     assert len(calls) == expected_query_count
     assert len(results) == expected_query_count
     assert results[0]["career_slug"] == "data_engineer"
+    assert results[0]["run_id"] == "test-run-001"
+    assert results[0]["query_number"] == 1
+    assert datetime.fromisoformat(results[0]["collected_at"]).tzinfo == timezone.utc
     assert results[0]["query"] == "Data Engineer"
     assert results[0]["response"] == {"data": [{"query": "Data Engineer"}]}
 

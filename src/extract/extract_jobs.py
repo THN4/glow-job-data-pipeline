@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.storage.raw_storage import save_raw_result
@@ -38,6 +39,7 @@ def extract_jobs(
                 search_settings=settings.search,
                 jsearch_settings=settings.jsearch,
             )
+            collected_at = datetime.now(timezone.utc)
 
             logger.info(
                 "Received JSearch response (%d/%d): career=%s, query=%r",
@@ -48,6 +50,9 @@ def extract_jobs(
             )
 
             result = {
+                "run_id": run_id,
+                "query_number": query_number,
+                "collected_at": collected_at.isoformat(),
                 "career_slug": career_slug,
                 "career_name": career.career_name,
                 "query": query,
@@ -59,6 +64,7 @@ def extract_jobs(
                 output_dir=output_dir,
                 run_id=run_id,
                 query_number=query_number,
+                collected_at=collected_at,
             )
 
             extracted_results.append(result)
