@@ -2,7 +2,7 @@
 
 This repository collects recent Thailand job postings and prepares structured job-market data for Glow-Job. The intended flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, career-level aggregation, and PostgreSQL loading. User-specific features belong to other services.
 
-The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, and validate job records for required fields, country, identifiers, and posting date. Invalid records are reported in the validation summary while raw responses remain available for review. The first PostgreSQL migration covers market ingestion and its required career/company references; skill extraction and aggregation tables will be added when those pipeline stages are implemented. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
+The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate job records, and clean valid jobs while keeping their query metadata. Invalid records and cleaning rejections are reported in the logs; raw responses remain available for review. The first PostgreSQL migration covers market ingestion and its required career/company references; skill extraction and aggregation tables will be added when those pipeline stages are implemented. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
 
 ## Local setup
 
