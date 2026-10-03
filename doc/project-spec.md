@@ -499,10 +499,10 @@ Original company information should still be preserved when useful.
 
 # 18. Career Roles
 
-Career categories should be stored in:
+Career categories should be stored in `core.careers`:
 
 ```text
-career_roles
+core.careers
 ```
 
 Suggested schema:
@@ -526,6 +526,10 @@ Example:
 ```
 
 The table must support adding more careers without schema changes.
+
+Seniority-specific targets belong in `core.career_profiles`. The current JSearch
+ingestion uses one `general` profile per configured career; separate seniority
+profiles can be added when career mapping needs them.
 
 ---
 
@@ -577,8 +581,11 @@ Cloud Data Engineer
 
         ↓
 
-career_id = Data Engineer
+career_profile_id = General Data Engineer
 ```
+
+The configured career slug resolves through `core.careers` to a
+`core.career_profiles` record. `market.job_postings` stores the profile ID.
 
 Career mapping may initially use:
 
@@ -596,7 +603,7 @@ The method may evolve later.
 Main table:
 
 ```text
-job_postings
+market.job_postings
 ```
 
 Suggested schema:
@@ -606,7 +613,7 @@ job_id
 provider_job_id
 
 company_id
-career_id
+career_profile_id
 
 job_title
 normalized_job_title
@@ -628,11 +635,12 @@ source_url
 posted_at
 collected_at
 
-search_query
-
 created_at
 updated_at
 ```
+
+Search provenance is stored separately in `market.job_search_matches`, because
+the same posting can be returned by more than one query or ingestion run.
 
 ---
 
@@ -873,7 +881,7 @@ SQL
 Aggregated results should be stored in:
 
 ```text
-career_skills
+market.career_skill_stats
 ```
 
 Suggested schema:
@@ -915,13 +923,13 @@ Kafka     25%
 The pipeline must distinguish between:
 
 ```text
-job_skills
+market.job_skills
 ```
 
 and:
 
 ```text
-career_skills
+market.career_skill_stats
 ```
 
 `job_skills` answers:
@@ -947,80 +955,82 @@ Initial database:
 PostgreSQL
 ```
 
-Main relationships:
+Main pipeline relationships:
 
 ```text
-companies
+core.companies
     │
     │ 1:N
     ▼
-job_postings
+market.job_postings
     │
     │ N:M
     ▼
-job_skills
+market.job_skills
     │
     ▼
-skills
+core.skills
 
 
-career_roles
+core.careers
     │
     │ 1:N
     ▼
-job_postings
+core.career_profiles
+    │
+    ▼
+market.job_postings
 
 
-career_roles
+core.career_profiles
     │
     │ N:M
     ▼
-career_skills
+market.career_skill_stats
     │
     ▼
-skills
+core.skills
 ```
 
 ---
 
 # 32. Recommended Core Tables
 
-Initial database should include:
+The database is implemented in stages. The first JSearch-ingestion migration includes:
 
 ```text
-companies
+core.companies
 
-career_roles
+core.careers
+core.career_profiles
 
-job_postings
+market.job_postings
+market.job_search_matches
 
-skills
-
-skill_aliases
-
-job_skills
-
-career_skills
+system.ingestion_runs
 ```
 
-Optional future pipeline tables:
+Add these market-analysis tables when skill extraction and aggregation are implemented:
 
 ```text
-ingestion_runs
-
-pipeline_errors
-
-career_search_queries
+core.skills
+core.skill_aliases
+market.job_skills
+market.career_skill_stats
 ```
+
+Raw JSearch responses remain in local storage or S3; PostgreSQL stores the
+structured records and their query/run provenance.
+
 
 ---
 
 # 33. Ingestion Runs
 
-Recommended table:
+Table:
 
 ```text
-ingestion_runs
+system.ingestion_runs
 ```
 
 Purpose:
@@ -1041,7 +1051,9 @@ jobs_valid
 jobs_duplicate
 jobs_inserted
 
-error_count
+jobs_updated
+jobs_failed
+error_message
 ```
 
 This will help monitor pipeline reliability.
@@ -1338,16 +1350,24 @@ Goal:
 
 Create PostgreSQL storage.
 
-Tables:
+First migration tables for JSearch ingestion:
 
 ```text
-companies
-career_roles
-job_postings
-skills
-skill_aliases
-job_skills
-career_skills
+core.companies
+core.careers
+core.career_profiles
+market.job_postings
+market.job_search_matches
+system.ingestion_runs
+```
+
+Later skill-analysis tables:
+
+```text
+core.skills
+core.skill_aliases
+market.job_skills
+market.career_skill_stats
 ```
 
 ---

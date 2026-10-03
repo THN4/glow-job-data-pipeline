@@ -269,31 +269,30 @@ Tasks:
 
 - PostgreSQL configuration
 - Database connection
-- ORM / repository setup
+- SQL repository setup with `psycopg` (ORM is optional)
 - Database migrations
 
-Initial tables:
+Initial JSearch ingestion tables:
 
 ```text
-companies
+core.companies
 
-career_roles
+core.careers
+core.career_profiles
 
-job_postings
+market.job_postings
+market.job_search_matches
 
-skills
-
-skill_aliases
-
-job_skills
-
-career_skills
+system.ingestion_runs
 ```
 
-Optional pipeline table:
+Add the skill-market tables when those stages are implemented:
 
 ```text
-ingestion_runs
+core.skills
+core.skill_aliases
+market.job_skills
+market.career_skill_stats
 ```
 
 ---
