@@ -3,7 +3,8 @@ from src.main import main
 from src.storage.raw_storage import save_raw_result
 
 
-def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path):
+def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog):
+    caplog.set_level("INFO")
     settings = load_settings()
     run_id = "test-replay-run"
     query_number = 0
@@ -38,3 +39,4 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path):
         range(1, expected_query_count + 1)
     )
     assert results[0]["run_id"] == run_id
+    assert "Validation completed: valid_jobs=0, invalid_jobs=6" in caplog.text

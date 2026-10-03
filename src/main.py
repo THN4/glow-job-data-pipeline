@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
 from src.storage.raw_storage import load_raw_result
+from src.validation.job_validator import validate_jobs
 
 
 def main(
@@ -46,6 +48,20 @@ def main(
             run_id=run_id,
         )
         logger.info("Extraction completed: %d query responses received", len(results))
+
+    valid_jobs, invalid_jobs = validate_jobs(results, settings)
+    logger.info(
+        "Validation completed: valid_jobs=%d, invalid_jobs=%d",
+        len(valid_jobs),
+        len(invalid_jobs),
+    )
+    if invalid_jobs:
+        reason_counts = Counter(
+            error
+            for invalid_job in invalid_jobs
+            for error in invalid_job["errors"]
+        )
+        logger.warning("Rejected job reasons: %s", dict(reason_counts))
 
     return results
 
