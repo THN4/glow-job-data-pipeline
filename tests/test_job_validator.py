@@ -1,0 +1,107 @@
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+
+from src.config.settings import load_settings
+from src.validation.job_validator import validate_jobs
+
+
+def _job(**overrides: object) -> dict[str, object]:
+    job: dict[str, object] = {
+        "job_id": "jsearch-123",
+        "job_title": "Data Engineer",
+        "job_description": "Build and maintain data pipelines. " * 5,
+        "job_country": "Thailand",
+        "job_posted_at_datetime_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    job.update(overrides)
+    return job
+
+
+def test_validate_jobs_keeps_valid_job_and_query_metadata() -> None:
+    settings = load_settings()
+    settings = replace(
+        settings,
+        validation=replace(settings.validation, minimum_description_length=50),
+    )
+    raw_results = [
+        {
+            "run_id": "run-001",
+            "query_number": 1,
+            "career_slug": "data_engineer",
+            "query": "Data Engineer",
+            "response": {"data": [_job()]},
+        }
+    ]
+
+    valid_jobs, invalid_jobs = validate_jobs(raw_results, settings)
+
+    assert len(valid_jobs) == 1
+    assert valid_jobs[0]["job"] == raw_results[0]["response"]["data"][0]
+    assert valid_jobs[0]["metadata"]["query"] == "Data Engineer"
+    assert invalid_jobs == []
+
+
+def test_validate_jobs_reports_reasons_for_invalid_job() -> None:
+    settings = load_settings()
+    settings = replace(
+        settings,
+        validation=replace(settings.validation, minimum_description_length=50),
+    )
+    invalid_job = _job(
+        job_title="  ",
+        job_description="too short",
+        job_country="US",
+        job_id=None,
+        job_posted_at_datetime_utc=(
+            datetime.now(timezone.utc) - timedelta(days=120)
+        ).isoformat(),
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [{"query": "Data Engineer", "response": {"data": [invalid_job]}}],
+        settings,
+    )
+
+    assert valid_jobs == []
+    assert invalid_jobs[0]["errors"] == [
+        "missing job title",
+        "job description is shorter than 50 characters",
+        "job country US is outside selected country TH",
+        "missing stable job identifier",
+        "posted date is older than 90 days",
+    ]
+
+
+def test_validate_jobs_accepts_provider_id_fallback_and_unix_timestamp() -> None:
+    settings = load_settings()
+    job = _job(
+        job_id=None,
+        employer_name="Example Company",
+        job_location="Bangkok",
+        job_posted_at_datetime_utc=None,
+        job_posted_at_timestamp=int(datetime.now(timezone.utc).timestamp()),
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [{"response": {"data": [job]}}],
+        settings,
+    )
+
+    assert len(valid_jobs) == 1
+    assert invalid_jobs == []
+
+
+def test_validate_jobs_reports_malformed_response_and_job_records() -> None:
+    settings = load_settings()
+    query_results = [
+        {"query": "missing data", "response": {}},
+        {"query": "not an object", "response": {"data": ["bad record"]}},
+    ]
+
+    valid_jobs, invalid_jobs = validate_jobs(query_results, settings)
+
+    assert valid_jobs == []
+    assert [result["errors"] for result in invalid_jobs] == [
+        ["response data is missing or is not a list"],
+        ["job record is not an object"],
+    ]
