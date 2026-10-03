@@ -91,6 +91,39 @@ def test_validate_jobs_accepts_provider_id_fallback_and_unix_timestamp() -> None
     assert invalid_jobs == []
 
 
+def test_validate_jobs_accepts_relative_posting_date_using_collection_time() -> None:
+    settings = load_settings()
+    collected_at = "2026-10-03T12:00:00+00:00"
+    job = _job(
+        job_posted_at_datetime_utc=None,
+        job_posted_at="10 วันที่ผ่านมา",
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [{"collected_at": collected_at, "response": {"data": [job]}}],
+        settings,
+    )
+
+    assert len(valid_jobs) == 1
+    assert invalid_jobs == []
+
+
+def test_validate_jobs_rejects_unsupported_relative_posting_date() -> None:
+    settings = load_settings()
+    job = _job(
+        job_posted_at_datetime_utc=None,
+        job_posted_at="recently",
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [{"response": {"data": [job]}}],
+        settings,
+    )
+
+    assert valid_jobs == []
+    assert invalid_jobs[0]["errors"] == ["invalid posted date"]
+
+
 def test_validate_jobs_reports_malformed_response_and_job_records() -> None:
     settings = load_settings()
     query_results = [

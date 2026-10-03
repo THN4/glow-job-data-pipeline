@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TypeAlias
 
 from src.config.settings import Settings
+from src.utils.job_dates import parse_job_posted_at
 
 JobRecord: TypeAlias = dict[str, object]
 ValidatedJob: TypeAlias = dict[str, object]
@@ -27,40 +28,6 @@ def _country_code(value: object) -> str | None:
     return _COUNTRY_ALIASES.get(normalized, normalized)
 
 
-def _parse_posted_at(job: JobRecord) -> datetime | None:
-    """Parse JSearch's ISO date or Unix timestamp into a UTC datetime."""
-    iso_value = _text(job.get("job_posted_at_datetime_utc"))
-    if iso_value is not None:
-        try:
-            parsed = datetime.fromisoformat(iso_value.replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
-        except ValueError:
-            pass
-
-    timestamp = job.get("job_posted_at_timestamp")
-    if isinstance(timestamp, bool):
-        return None
-    if isinstance(timestamp, str):
-        timestamp = timestamp.strip()
-        if not timestamp:
-            return None
-        try:
-            timestamp = float(timestamp)
-        except ValueError:
-            return None
-    if isinstance(timestamp, (int, float)):
-        # Some providers express Unix timestamps in milliseconds.
-        if abs(timestamp) >= 1_000_000_000_000:
-            timestamp /= 1000
-        try:
-            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-        except (OverflowError, OSError, ValueError):
-            return None
-    return None
-
-
 def _job_errors(
     job: JobRecord,
     *,
@@ -68,6 +35,7 @@ def _job_errors(
     minimum_description_length: int,
     time_window_days: int,
     now: datetime,
+    collected_at: object,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -115,18 +83,36 @@ def _job_errors(
     if not (has_provider_id or has_job_url or has_fallback_key):
         errors.append("missing stable job identifier")
 
-    posted_at = _parse_posted_at(job)
+    posted_at, _ = parse_job_posted_at(
+        job,
+        collected_at=collected_at,
+        fallback_time=now,
+    )
     if posted_at is None:
-        timestamp_value = job.get("job_posted_at_timestamp")
-        has_date_value = _text(job.get("job_posted_at_datetime_utc")) is not None or (
-            timestamp_value is not None and timestamp_value != ""
+        has_date_value = any(
+            job.get(field) not in (None, "")
+            for field in (
+                "job_posted_at_datetime_utc",
+                "job_posted_at_timestamp",
+                "job_posted_at",
+            )
         )
         if not has_date_value:
             errors.append("missing posted date")
         else:
             errors.append("invalid posted date")
-    elif posted_at < now - timedelta(days=time_window_days):
-        errors.append(f"posted date is older than {time_window_days} days")
+    else:
+        try:
+            reference_time = datetime.fromisoformat(
+                str(collected_at).replace("Z", "+00:00")
+            )
+            if reference_time.tzinfo is None:
+                reference_time = reference_time.replace(tzinfo=timezone.utc)
+            reference_time = reference_time.astimezone(timezone.utc)
+        except ValueError:
+            reference_time = now
+        if posted_at < reference_time - timedelta(days=time_window_days):
+            errors.append(f"posted date is older than {time_window_days} days")
 
     return errors
 
@@ -179,6 +165,7 @@ def validate_jobs(
                 minimum_description_length=settings.validation.minimum_description_length,
                 time_window_days=settings.validation.time_window_days,
                 now=now,
+                collected_at=metadata.get("collected_at"),
             )
             result = {"job": job, "metadata": metadata}
             if errors:
