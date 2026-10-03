@@ -2,7 +2,7 @@
 
 This repository collects recent Thailand job postings and prepares structured job-market data for Glow-Job. The intended flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, career-level aggregation, and PostgreSQL loading. User-specific features belong to other services.
 
-The current pipeline can fetch JSearch results and preserve them as raw JSON under `data/raw/`. It can also replay a complete saved run without calling the API. The first PostgreSQL migration covers market ingestion and its required career/company references; skill extraction and aggregation tables will be added when those pipeline stages are implemented. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
+The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, and validate job records for required fields, country, identifiers, and posting date. Invalid records are reported in the validation summary while raw responses remain available for review. The first PostgreSQL migration covers market ingestion and its required career/company references; skill extraction and aggregation tables will be added when those pipeline stages are implemented. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
 
 ## Local setup
 
@@ -34,7 +34,7 @@ python -m src.main --replay-run-id 20260928T120000000000Z
 python -m pytest
 ```
 
-Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` to configure `search` request parameters and `validation` thresholds; edit `config/careers.yaml` to add career search queries without changing Python code. The validation thresholds are loaded and checked now; job-level filtering will be implemented in the validation phase.
+Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` to configure `search` request parameters and `validation` thresholds; edit `config/careers.yaml` to add career search queries without changing Python code.
 
 ## Local PostgreSQL
 
