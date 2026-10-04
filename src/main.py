@@ -11,6 +11,7 @@ from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
 from src.storage.raw_storage import load_raw_result
 from src.transform.job_cleaner import clean_jobs
+from src.transform.deduplicator import deduplicate_jobs
 from src.validation.job_validator import validate_jobs
 
 
@@ -19,7 +20,7 @@ def main(
     replay_run_id: str | None = None,
     raw_output_dir: Path = Path("data/raw"),
 ) -> list[dict[str, object]]:
-    """Load or fetch raw data, then return validated and cleaned job records."""
+    """Load or fetch raw data, then return deduplicated cleaned job records."""
     configure_logging()
     logger = logging.getLogger(__name__)
     settings = load_settings()
@@ -78,7 +79,14 @@ def main(
         )
         logger.warning("Cleaning rejection reasons: %s", dict(reason_counts))
 
-    return cleaned_jobs
+    unique_jobs, duplicates = deduplicate_jobs(cleaned_jobs)
+    logger.info(
+        "Deduplication completed: unique_jobs=%d, duplicates_removed=%d",
+        len(unique_jobs),
+        len(duplicates),
+    )
+
+    return unique_jobs
 
 
 if __name__ == "__main__":
