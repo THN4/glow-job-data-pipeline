@@ -5,6 +5,7 @@ from typing import TypeAlias
 
 from src.config.settings import Settings
 from src.utils.job_dates import parse_job_posted_at
+from src.utils.job_locations import country_code_from_location
 
 JobRecord: TypeAlias = dict[str, object]
 ValidatedJob: TypeAlias = dict[str, object]
@@ -54,7 +55,7 @@ def _job_errors(
 
     actual_country = _country_code(job.get("job_country")) or _country_code(
         job.get("job_country_code")
-    )
+    ) or country_code_from_location(job.get("job_location"))
     if actual_country is None:
         errors.append("missing job country")
     elif actual_country != expected_country:
@@ -137,6 +138,10 @@ def validate_jobs(
         }
         response = query_result.get("response")
         data = response.get("data") if isinstance(response, dict) else None
+        if isinstance(data, dict):
+            # JSearch search-v2 wraps the posting list and pagination cursor
+            # inside data; older responses/tests may provide data as a list.
+            data = data.get("jobs")
 
         if not isinstance(data, list):
             invalid_jobs.append(
