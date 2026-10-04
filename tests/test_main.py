@@ -47,7 +47,11 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
 
     monkeypatch.setattr("src.main.extract_jobs", fail_if_extraction_runs)
 
-    cleaned_jobs = main(replay_run_id=run_id, raw_output_dir=tmp_path)
+    cleaned_jobs = main(
+        replay_run_id=run_id,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "company-review",
+    )
 
     expected_query_count = sum(
         len(career.queries) for career in settings.careers.values()
@@ -93,6 +97,7 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
                             {
                                 "job_id": "same-provider-job",
                                 "job_title": "Data Engineer",
+                                "employer_name": "Siam Commercial Ban",
                                 "job_description": "Build reliable data pipelines. " * 5,
                                 "job_country": "Thailand",
                                 "job_posted_at_datetime_utc": datetime.now(
@@ -122,7 +127,12 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
 
     monkeypatch.setattr("src.main.extract_jobs", fail_if_extraction_runs)
 
-    unique_jobs = main(replay_run_id=run_id, raw_output_dir=tmp_path)
+    review_output_dir = tmp_path / "company-review"
+    unique_jobs = main(
+        replay_run_id=run_id,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=review_output_dir,
+    )
 
     assert len(unique_jobs) == 1
     assert unique_jobs[0]["metadata"]["query_number"] == 1
@@ -131,6 +141,12 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
         range(1, query_number + 1)
     )
     assert len(unique_jobs[0]["job"]["apply_options"]) == query_number
+    assert unique_jobs[0]["job"]["company_normalization"]["match_method"] == (
+        "candidate_review"
+    )
+    report_path = review_output_dir / f"{run_id}.csv"
+    assert report_path.exists()
+    assert "Siam Commercial Ban" in report_path.read_text(encoding="utf-8-sig")
     assert (
         f"Deduplication completed: unique_jobs=1, duplicates_removed={query_number - 1}"
         in caplog.text

@@ -41,6 +41,30 @@ def test_validate_jobs_keeps_valid_job_and_query_metadata() -> None:
     assert invalid_jobs == []
 
 
+def test_validate_jobs_accepts_jsearch_data_object_with_jobs_list() -> None:
+    settings = load_settings()
+    job = _job()
+    raw_results = [
+        {
+            "run_id": "run-001",
+            "query_number": 1,
+            "career_slug": "data_engineer",
+            "query": "Data Engineer",
+            "response": {
+                "status": "OK",
+                "data": {"jobs": [job], "cursor": "next-page-token"},
+            },
+        }
+    ]
+
+    valid_jobs, invalid_jobs = validate_jobs(raw_results, settings)
+
+    assert len(valid_jobs) == 1
+    assert valid_jobs[0]["job"] == job
+    assert valid_jobs[0]["metadata"]["query_number"] == 1
+    assert invalid_jobs == []
+
+
 def test_validate_jobs_reports_reasons_for_invalid_job() -> None:
     settings = load_settings()
     settings = replace(
@@ -89,6 +113,48 @@ def test_validate_jobs_accepts_provider_id_fallback_and_unix_timestamp() -> None
 
     assert len(valid_jobs) == 1
     assert invalid_jobs == []
+
+
+def test_validate_jobs_infers_country_from_explicit_location_marker() -> None:
+    settings = load_settings()
+    job = _job(
+        job_country="",
+        job_country_code=None,
+        job_location="ประเทศไทย • ผ่าน LinkedIn",
+        job_posted_at_datetime_utc=None,
+        job_posted_at="20 วันที่ผ่านมา",
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [
+            {
+                "collected_at": datetime.now(timezone.utc).isoformat(),
+                "response": {"data": [job]},
+            }
+        ],
+        settings,
+    )
+
+    assert len(valid_jobs) == 1
+    assert invalid_jobs == []
+
+
+def test_validate_jobs_does_not_infer_country_from_city_alone() -> None:
+    settings = load_settings()
+    job = _job(
+        job_country="",
+        job_country_code=None,
+        job_location="กรุงเทพมหานคร",
+        job_posted_at="3 วันที่ผ่านมา",
+    )
+
+    valid_jobs, invalid_jobs = validate_jobs(
+        [{"response": {"data": [job]}}],
+        settings,
+    )
+
+    assert valid_jobs == []
+    assert invalid_jobs[0]["errors"] == ["missing job country"]
 
 
 def test_validate_jobs_accepts_relative_posting_date_using_collection_time() -> None:

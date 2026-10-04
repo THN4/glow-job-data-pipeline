@@ -10,8 +10,10 @@ from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
 from src.storage.raw_storage import load_raw_result
+from src.storage.company_review_storage import save_company_match_candidates
 from src.transform.job_cleaner import clean_jobs
 from src.transform.deduplicator import deduplicate_jobs
+from src.transform.company_normalizer import normalize_job_companies
 from src.validation.job_validator import validate_jobs
 
 
@@ -19,6 +21,9 @@ def main(
     *,
     replay_run_id: str | None = None,
     raw_output_dir: Path = Path("data/raw"),
+    company_review_output_dir: Path = Path(
+        "data/processed/company_match_candidates"
+    ),
 ) -> list[dict[str, object]]:
     """Load or fetch raw data, then return deduplicated cleaned job records."""
     configure_logging()
@@ -26,6 +31,7 @@ def main(
     settings = load_settings()
 
     if replay_run_id is not None:
+        active_run_id = replay_run_id
         expected_query_count = sum(
             len(career.queries) for career in settings.careers.values()
         )
@@ -38,6 +44,7 @@ def main(
         logger.info("Replay completed: %d query responses loaded", len(results))
     else:
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        active_run_id = run_id
         logger.info(
             "Starting job extraction: run_id=%s, country=%s, careers=%d",
             run_id,
@@ -86,7 +93,38 @@ def main(
         len(duplicates),
     )
 
-    return unique_jobs
+    normalized_jobs = normalize_job_companies(unique_jobs)
+    confirmed_companies = sum(
+        1
+        for entry in normalized_jobs
+        if isinstance(entry.get("job"), dict)
+        and isinstance(entry["job"].get("company_normalization"), dict)
+        and entry["job"]["company_normalization"].get("match_method")
+        == "confirmed_alias"
+    )
+    company_candidates = sum(
+        1
+        for entry in normalized_jobs
+        if isinstance(entry.get("job"), dict)
+        and isinstance(entry["job"].get("company_normalization"), dict)
+        and entry["job"]["company_normalization"].get("match_method")
+        == "candidate_review"
+    )
+    logger.info(
+        "Company normalization completed: jobs=%d, confirmed=%d, candidates_for_review=%d",
+        len(normalized_jobs),
+        confirmed_companies,
+        company_candidates,
+    )
+    review_report = save_company_match_candidates(
+        normalized_jobs,
+        run_id=active_run_id,
+        output_dir=company_review_output_dir,
+    )
+    if review_report is not None:
+        logger.info("Company match review report saved: %s", review_report)
+
+    return normalized_jobs
 
 
 if __name__ == "__main__":

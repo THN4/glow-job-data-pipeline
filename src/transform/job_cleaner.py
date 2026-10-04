@@ -6,6 +6,7 @@ from html.parser import HTMLParser
 
 from src.config.settings import Settings
 from src.utils.job_dates import parse_job_posted_at
+from src.utils.job_locations import country_code_from_location
 
 _BLOCK_TAGS = {
     "address",
@@ -97,9 +98,12 @@ def _clean_url(value: object) -> object:
 
 def _normalize_country(job: dict[str, object]) -> None:
     value = job.get("job_country") or job.get("job_country_code")
-    if not isinstance(value, str):
+    country = value.strip() if isinstance(value, str) else ""
+    if not country:
+        inferred_country = country_code_from_location(job.get("job_location"))
+        if inferred_country is not None:
+            job["job_country"] = inferred_country
         return
-    country = value.strip()
     if country.casefold() == "thailand":
         job["job_country"] = "TH"
     elif len(country) == 2:

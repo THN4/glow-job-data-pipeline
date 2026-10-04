@@ -1,0 +1,7 @@
+# Add aliases only after confirming they refer to the same company.
+companies:
+  siam_commercial_bank:
+    canonical_name: Siam Commercial Bank
+    aliases:
+      - SCB
+      - The Siam Commercial Bank PCL

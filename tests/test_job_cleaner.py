@@ -95,6 +95,27 @@ def test_relative_posted_text_becomes_estimated_datetime() -> None:
     assert cleaned_jobs[0]["job"]["job_posted_at"] == "10 วันที่ผ่านมา"
 
 
+def test_clean_jobs_normalizes_country_from_explicit_location_marker() -> None:
+    settings = load_settings()
+    settings = replace(
+        settings,
+        validation=replace(settings.validation, minimum_description_length=20),
+    )
+    entry = {
+        "job": _valid_job(
+            job_country="",
+            job_country_code=None,
+            job_location="ประเทศไทย • ผ่าน LinkedIn",
+        ),
+        "metadata": {"collected_at": "2026-10-03T12:00:00+00:00"},
+    }
+
+    cleaned_jobs, rejected_jobs = clean_jobs([entry], settings)
+
+    assert cleaned_jobs[0]["job"]["job_country"] == "TH"
+    assert rejected_jobs == []
+
+
 def test_clean_jobs_rejects_description_that_is_too_short_after_html_removal() -> None:
     settings = load_settings()
     settings = replace(
