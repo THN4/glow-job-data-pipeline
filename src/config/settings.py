@@ -27,6 +27,7 @@ class ValidationSettings:
 class CareerSettings:
     career_name: str
     queries: tuple[str, ...]
+    title_aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,10 +84,21 @@ def load_settings(config_dir: Path | None = None) -> Settings:
                 raise ValueError("Each career must have a slug and a mapping of settings")
             if not isinstance(entry.get("queries"), list):
                 raise ValueError(f"Career {slug} must have a list of search queries")
+            title_aliases = entry.get("title_aliases", [])
+            if not isinstance(title_aliases, list) or any(
+                not isinstance(alias, str) or not alias.strip()
+                for alias in title_aliases
+            ):
+                raise ValueError(
+                    f"Career {slug} title_aliases must be a list of non-empty strings"
+                )
         careers = {
             slug: CareerSettings(
                 career_name=entry["career_name"],
                 queries=tuple(entry["queries"]),
+                title_aliases=tuple(
+                    alias.strip() for alias in entry.get("title_aliases", [])
+                ),
             )
             for slug, entry in career_entries.items()
         }
