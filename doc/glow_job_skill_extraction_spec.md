@@ -1,1193 +1,342 @@
 # Glow-Job Skill Extraction Specification
 
-## 1. Purpose
+## 1. Purpose and scope
 
-เอกสารนี้กำหนดรูปแบบและ logic สำหรับ **Skill Extraction จาก Job Description (JD)** ในระบบ Glow-Job
+เอกสารนี้กำหนดผลลัพธ์และกติกาของการดึง skill จาก Job Description (JD) หนึ่งประกาศ โดยต้องเก็บบริบทที่บอกว่า skill นั้นจำเป็นแค่ไหน ระดับที่ประกาศระบุ หลักฐานจากข้อความ และความมั่นใจของระบบ
 
-เป้าหมายคือไม่ extract เพียงว่าใน JD มี Skill อะไรบ้าง แต่ต้องเก็บ **บริบทของ Skill แต่ละตัว** ด้วย เพื่อให้ระบบสามารถตอบได้ว่า:
+งานนี้จบที่ข้อมูล skill ระดับประกาศ (`market.job_skills`) การรวมสถิติหลายประกาศ (`market.career_skill_stats`) เป็นขั้นต่อไป ไม่ใช่ผลลัพธ์ที่ LLM สร้างจาก JD รายการเดียว
 
-- Skill นี้ถูกกล่าวถึงจริงหรือไม่
-- Skill นี้เป็น `required`, `preferred`, `optional` หรือไม่ชัดเจน
-- บริษัทคาดหวังระดับความสามารถประมาณไหน
-- Skill นี้สำคัญต่อ JD นี้มากแค่ไหน
-- ระบบมั่นใจแค่ไหนว่า extraction ถูกต้อง
-- ข้อความส่วนไหนของ JD เป็นหลักฐาน
-- เมื่อ aggregate หลาย JD แล้ว Skill นี้สำคัญต่อ Career โดยรวมแค่ไหน
-
----
-
-## 2. Overall Flow
+ภาพรวม:
 
 ```text
-Job Description
-      ↓
-Text Preparation
-      ↓
-LLM / NLP Context-Aware Extraction
-      ↓
-Raw Skill Extraction
-      ↓
-Skill Normalization
-      ↓
-Rule-Based Scoring
-      │
-      ├── importance_weight
-      └── confidence scores
-      ↓
-market.job_skills
-      ↓
-Aggregate Many Job Postings
-      ↓
-market.career_skill_stats
+Clean Job Description
+        ↓
+NLP text preparation / candidate detection
+        ↓
+LLM context extraction
+        ↓
+Validate evidence and output
+        ↓
+Normalize raw skill to canonical skill
+        ↓
+Rule-based scoring
+        ↓
+Job-level skill records
+        ↓
+Career-level aggregation (later stage)
 ```
 
-หลักสำคัญคือ:
+## 2. Responsibilities
 
-> LLM มีหน้าที่อ่าน Context และ Extract ข้อมูลเชิงความหมาย  
-> ส่วนคะแนนเชิงตัวเลขควรคำนวณด้วย deterministic logic เพื่อให้ผล consistent และ testable
+| Component | Responsibility |
+|---|---|
+| NLP/text preparation | แบ่งข้อความเป็นประโยคและส่วนย่อย เตรียมข้อความสะอาด และช่วยหา candidate skill |
+| LLM | อ่านบริบทและส่ง `raw_skill_name`, `requirement_type`, `proficiency_level` และ `evidence_text` ตามรูปแบบที่กำหนด |
+| Skill normalization | map ชื่อที่พบไปยัง canonical skill และ `skill_id` จาก `core.skills` / `core.skill_aliases` |
+| Rule engine | ตรวจผล คำนวณ `importance_weight` และ confidence ด้วยกฎที่กำหนด ไม่รับตัวเลขคะแนนที่ LLM คิดเอง |
+| Aggregation | สรุปผลจากหลาย job ใน career และช่วงเวลาที่ระบุ |
 
----
+NLP และ LLM เป็นแนวทางของระบบ แต่ยังไม่ผูกกับ library หรือผู้ให้บริการ LLM รายใด การเลือกเครื่องมือและค่าใช้บริการเป็นการตั้งค่าของ implementation แยกต่างหาก
 
-## 3. What the LLM Should Extract
+## 3. Per-job extraction contract
 
-LLM ไม่ควรสร้าง `importance_weight` หรือ confidence แบบสุ่มเองโดยตรง
-
-LLM ควร extract ข้อมูลพื้นฐานต่อไปนี้:
+ก่อนบันทึกลงฐานข้อมูล ผลจากการวิเคราะห์หนึ่งประกาศควรมีรูปแบบประมาณนี้:
 
 ```json
 {
-  "skill": "Python",
-  "requirement_type": "required",
-  "proficiency_level": "advanced",
-  "evidence_text": "Strong Python skills are required."
+  "job_ref": "jsearch:provider-job-123",
+  "extraction_status": "completed",
+  "skills": [
+    {
+      "raw_skill_name": "Postgres",
+      "requirement_type": "required",
+      "proficiency_level": "unknown",
+      "evidence_text": "Experience using Postgres in production is required."
+    }
+  ]
 }
 ```
 
-| Field | หน้าที่ |
-|---|---|
-| `skill` | Skill ที่ตรวจพบ |
-| `requirement_type` | Skill นี้จำเป็นต่อ Job แค่ไหน |
-| `proficiency_level` | บริษัทต้องการให้เก่งระดับไหน |
-| `evidence_text` | ประโยคหรือข้อความที่รองรับ extraction |
+`job_ref` ใช้ผูกผลกับประกาศก่อนมี database-generated `job_id` เมื่อมี `job_id` แล้วจึง resolve ความสัมพันธ์ตอน load
 
-จากนั้นระบบจะทำ Skill Normalization และ Scoring ต่อ
-
----
-
-## 4. Requirement Type
-
-`requirement_type` ตอบคำถามว่า:
-
-> บริษัทให้ความสำคัญกับการ “มี Skill นี้” แค่ไหน
-
-ค่าที่ใช้:
-
-```text
-required
-preferred
-optional
-unknown
-```
-
-| Value | ความหมาย |
-|---|---|
-| `required` | ผู้สมัครต้องมี Skill นี้ |
-| `preferred` | มีจะได้เปรียบ แต่ไม่ใช่ข้อบังคับ |
-| `optional` | เป็น Skill เสริมหรือ Nice-to-have |
-| `unknown` | JD ไม่ได้ระบุชัดเจน |
-
-ตัวอย่าง:
-
-```text
-Python experience is required.
-Basic Kafka knowledge is preferred.
-```
-
-```json
-[
-  {
-    "skill": "Python",
-    "requirement_type": "required"
-  },
-  {
-    "skill": "Apache Kafka",
-    "requirement_type": "preferred"
-  }
-]
-```
-
----
-
-## 5. Proficiency Level
-
-`proficiency_level` ตอบคำถามว่า:
-
-> บริษัทคาดหวังให้ผู้สมัครมี Skill นี้ในระดับไหน
-
-ค่าที่ใช้:
-
-```text
-beginner
-intermediate
-advanced
-expert
-unknown
-```
-
-| Value | ความหมาย |
-|---|---|
-| `beginner` | รู้พื้นฐานหรือใช้งานเบื้องต้น |
-| `intermediate` | สามารถใช้งานจริงได้ |
-| `advanced` | ใช้งานในงานซับซ้อนได้ |
-| `expert` | เชี่ยวชาญหรือเป็น specialist |
-| `unknown` | JD ไม่ได้ระบุระดับชัดเจน |
-
-ตัวอย่าง:
-
-```text
-Strong Python programming skills are required.
-Basic SQL knowledge is preferred.
-```
-
-```json
-[
-  {
-    "skill": "Python",
-    "requirement_type": "required",
-    "proficiency_level": "advanced"
-  },
-  {
-    "skill": "SQL",
-    "requirement_type": "preferred",
-    "proficiency_level": "beginner"
-  }
-]
-```
-
----
-
-## 6. Requirement Type vs Proficiency Level
-
-สอง Field นี้ตอบคนละคำถาม:
-
-```text
-requirement_type
-= จำเป็นต้องมีไหม
-
-proficiency_level
-= ถ้ามีแล้ว ต้องเก่งแค่ไหน
-```
-
-ตัวอย่าง:
-
-```text
-required + beginner
-= ต้องมี แต่แค่พื้นฐานก็พอ
-
-required + advanced
-= ต้องมี และต้องเก่ง
-
-preferred + beginner
-= มีก็ดี และแค่พื้นฐานก็พอ
-
-preferred + advanced
-= ไม่บังคับ แต่ถ้ามีคาดหวังระดับสูง
-```
-
-เพราะฉะนั้นต้องเก็บทั้งสอง Field แยกกัน
-
----
-
-## 7. Skill Normalization
-
-หลัง LLM Extract Skill แล้ว ห้ามนำชื่อ Raw ไปใช้โดยตรงทันที
-
-ตัวอย่าง:
-
-```text
-Postgres
-Postgre SQL
-PostgreSQL
-```
-
-ควร map ไปยัง Canonical Skill เดียว:
-
-```text
-skill_id = 12
-skill_name = PostgreSQL
-```
-
-ใช้:
-
-```text
-core.skills
-core.skill_aliases
-```
-
-Output หลัง Normalize ควรมีทั้งชื่อ Raw และ Canonical:
-
-```json
-{
-  "skill_id": 12,
-  "skill_name": "PostgreSQL",
-  "raw_skill_name": "Postgres"
-}
-```
-
----
-
-## 8. Importance Weight
-
-`importance_weight` ตอบคำถามว่า:
-
-> Skill นี้สำคัญต่อ Job Posting นี้มากแค่ไหน
-
-ช่วงคะแนน:
-
-```text
-0.0 - 1.0
-```
-
-ไม่ควรให้ LLM Generate คะแนนนี้โดยตรง
-
-ควรคำนวณจาก:
-
-```text
-requirement_type
-+
-proficiency_level
-```
-
-### Requirement Score
-
-```text
-required   = 1.00
-preferred  = 0.60
-optional   = 0.30
-unknown    = 0.40
-```
-
-### Proficiency Score
-
-```text
-expert        = 1.00
-advanced      = 0.90
-intermediate  = 0.70
-beginner      = 0.50
-unknown       = 0.60
-```
-
-### Formula
-
-```text
-importance_weight
-=
-0.7 × requirement_score
-+
-0.3 × proficiency_score
-```
-
-เหตุผลที่ Requirement มี Weight สูงกว่า:
-
-> `importance_weight` ต้องสะท้อนว่า Skill นี้จำเป็นต่อ Job มากแค่ไหน ไม่ใช่เพียงว่าต้องเก่งระดับไหน
-
-### Example A
-
-```text
-Python
-required
-advanced
-```
-
-```text
-0.7(1.00) + 0.3(0.90)
-= 0.97
-```
-
-### Example B
-
-```text
-SQL
-preferred
-beginner
-```
-
-```text
-0.7(0.60) + 0.3(0.50)
-= 0.57
-```
-
-### Example C
-
-```text
-Linux
-required
-beginner
-```
-
-```text
-0.7(1.00) + 0.3(0.50)
-= 0.85
-```
-
-ถึงแม้บริษัทต้องการเพียง Beginner แต่ Skill ยังมีความสำคัญสูง เพราะเป็น Requirement
-
----
-
-## 9. Confidence
-
-Confidence ใช้ตอบคำถามว่า:
-
-> ระบบมั่นใจแค่ไหนว่า Skill Extraction ในแต่ละ field ถูกต้อง
-
-Confidence **ไม่ใช่** ค่าความสำคัญของ Skill ต่อ Job
-
-ตัวอย่าง:
-
-```text
-importance_weight = 0.95
-overall_confidence = 0.50
-```
-
-หมายถึง:
-
-> ถ้า extraction นี้ถูก Skill นี้สำคัญมากต่อ Job แต่ระบบยังไม่มั่นใจว่า extraction ถูกจริง
-
-เพื่อให้สามารถอธิบายและ debug ได้ชัดเจน Glow-Job จะแยก Confidence ออกเป็น 4 ค่า:
-
-```text
-skill_confidence
-requirement_confidence
-proficiency_confidence
-overall_confidence
-```
-
----
-
-### 9.1 `skill_confidence`
-
-ตอบคำถามว่า:
-
-> ระบบมั่นใจแค่ไหนว่า Skill ที่ extract ออกมาคือ Skill ที่ JD กล่าวถึงจริง
-
-แนวทางการให้คะแนน:
-
-| กรณี | ตัวอย่าง | Score แนะนำ |
-|---|---|---:|
-| Exact canonical match | `Python` → `Python` | `1.00` |
-| Exact alias match | `Postgres` → `PostgreSQL` | `0.95` |
-| High fuzzy match | typo หรือชื่อใกล้เคียงมาก | `0.85` |
-| Strong semantic / embedding match | ความหมายใกล้กันมาก | `0.75` |
-| LLM inference from context | ไม่ได้พูดชื่อ Skill ตรง ๆ | `0.60` |
-| Weak inference | ต้องเดาจากบริบทมาก | `0.40` |
-
-ตัวอย่าง:
-
-```text
-JD:
-"Experience with Postgres is required."
-
-Raw:
-Postgres
-
-Canonical:
-PostgreSQL
-```
-
-สามารถให้:
-
-```text
-skill_confidence = 0.95
-```
-
-อีกตัวอย่าง:
-
-```text
-JD:
-"Experience with relational database systems."
-```
-
-ถ้าระบบ infer เป็น `SQL`:
-
-```text
-skill_confidence ≈ 0.60
-```
-
-เพราะ JD ไม่ได้ mention SQL โดยตรง
-
-หาก `skill_confidence` ต่ำมาก เช่นต่ำกว่า `0.50` ควรพิจารณา:
-
-```text
-ไม่บันทึกอัตโนมัติ
-หรือ
-ส่งเข้า review
-```
-
----
-
-### 9.2 `requirement_confidence`
-
-ตอบคำถามว่า:
-
-> ระบบมั่นใจแค่ไหนว่า `required / preferred / optional / unknown` ที่ classify ถูกต้อง
-
-แนวทาง:
-
-| Context | Classification | Confidence |
-|---|---|---:|
-| `must`, `required`, `mandatory` | `required` | `1.00` |
-| `should have`, `expected to have` | `required` | `0.85` |
-| `preferred`, `desirable`, `advantageous` | `preferred` | `1.00` |
-| `nice to have`, `plus`, `bonus` | `preferred` หรือ `optional` | `0.85–0.90` |
-| Mention Skill แต่ไม่มี requirement cue | `unknown` | `≈0.90` |
-| ต้อง infer จากบริบทหลายประโยค | ตามผลที่ classify | `0.60–0.75` |
-
-ตัวอย่าง:
-
-```text
-"Python is required."
-```
-
-ได้:
-
-```text
-requirement_type = required
-requirement_confidence = 1.00
-```
-
-ตัวอย่าง:
-
-```text
-"Kafka knowledge would be a plus."
-```
-
-อาจได้:
-
-```text
-requirement_type = preferred
-requirement_confidence = 0.90
-```
-
-สิ่งสำคัญคือค่าต่อไปนี้ **ถูกต้องได้**:
-
-```json
-{
-  "requirement_type": "unknown",
-  "requirement_confidence": 0.95
-}
-```
-
-ความหมายคือ:
-
-> ระบบมั่นใจสูงว่า JD ไม่ได้ให้ข้อมูลเพียงพอที่จะระบุว่า Skill นี้ required, preferred หรือ optional
-
-ไม่ได้หมายความว่าระบบไม่มั่นใจ
-
----
-
-### 9.3 `proficiency_confidence`
-
-ตอบคำถามว่า:
-
-> ระบบมั่นใจแค่ไหนว่า `beginner / intermediate / advanced / expert / unknown` ที่ classify ถูกต้อง
-
-แนวทาง:
-
-| Context | Level | Confidence |
-|---|---|---:|
-| `basic`, `fundamental`, `introductory` | `beginner` | `1.00` |
-| `working knowledge`, `practical experience` | `intermediate` | `≈0.90` |
-| `proficient`, `solid experience` | `intermediate` | `≈0.80` |
-| `strong`, `highly proficient` | `advanced` | `≈0.85` |
-| `expert`, `deep expertise`, `specialist` | `expert` | `≈0.95` |
-| ไม่มีการพูดถึงระดับ | `unknown` | `≈0.95` |
-| infer จาก years of experience | inferred level | `0.60–0.75` |
-
-ตัวอย่าง:
-
-```text
-"Basic Kafka knowledge"
-```
-
-ได้:
-
-```text
-proficiency_level = beginner
-proficiency_confidence = 1.00
-```
-
-ตัวอย่าง:
-
-```text
-"Strong Python programming skills"
-```
-
-อาจได้:
-
-```text
-proficiency_level = advanced
-proficiency_confidence = 0.85
-```
-
-### Important Rule
-
-ไม่ควร map จำนวนปีเป็น proficiency แบบตายตัว เช่น:
-
-```text
-3 years of Python
-≠
-advanced เสมอไป
-```
-
-หากจะใช้จำนวนปีเป็น signal ต้องถือว่าเป็น inference และลด confidence ลง
-
----
-
-### 9.4 `overall_confidence`
-
-ใช้เป็นคะแนนสรุปว่า:
-
-> Skill record นี้โดยรวมเชื่อถือได้แค่ไหน
-
-สำหรับ MVP แนะนำสูตร:
-
-```text
-overall_confidence
-=
-0.40 × skill_confidence
-+
-0.35 × requirement_confidence
-+
-0.25 × proficiency_confidence
-```
-
-เหตุผลของ Weight:
-
-```text
-skill_confidence
-```
-
-มีน้ำหนักสูงที่สุด เพราะถ้า identify Skill ผิด ค่า requirement และ proficiency ที่เหลือจะไม่มีความหมาย
-
-รองลงมา:
-
-```text
-requirement_confidence
-```
-
-เพราะ requirement มีผลโดยตรงต่อ:
-
-```text
-importance_weight
-Market Priority
-```
-
-และสุดท้าย:
-
-```text
-proficiency_confidence
-```
-
-เพราะหลาย JD ไม่ระบุระดับอย่างชัดเจนเป็นเรื่องปกติ
-
-ตัวอย่าง:
-
-```text
-skill_confidence       = 1.00
-requirement_confidence = 1.00
-proficiency_confidence = 0.85
-```
-
-คำนวณ:
-
-```text
-overall_confidence
-=
-0.40(1.00)
-+
-0.35(1.00)
-+
-0.25(0.85)
-
-= 0.9625
-```
-
-สามารถเก็บ:
-
-```text
-overall_confidence = 0.963
-```
-
----
-
-## 10. Confidence Threshold
-
-สามารถใช้ `overall_confidence` เพื่อกำหนดพฤติกรรมของ Pipeline
-
-ค่าเริ่มต้นสำหรับ MVP:
-
-| Overall Confidence | Action |
-|---|---|
-| `>= 0.85` | Auto Accept |
-| `0.65 – 0.84` | Accept แต่ mark เป็น uncertain |
-| `0.50 – 0.64` | Low confidence / Review |
-| `< 0.50` | Reject หรือไม่บันทึกอัตโนมัติ |
-
-Threshold นี้เป็น **ค่าเริ่มต้น** และควรปรับหลังจากทดสอบกับ JD จริง
-
-ไม่ควรถือว่าเป็นค่าตายตัวตั้งแต่แรก
-
----
-
-## 11. Relationship Between Confidence and Importance
-
-ต้องแยกสองแนวคิดนี้อย่างชัดเจน:
-
-```text
-importance_weight
-= Skill นี้สำคัญต่อ Job แค่ไหน
-
-confidence
-= เรามั่นใจแค่ไหนว่า Extraction ถูก
-```
-
-จึงสามารถเกิดกรณี:
-
-```text
-importance_weight = 0.97
-overall_confidence = 0.55
-```
-
-ความหมาย:
-
-> ถ้าการตีความนี้ถูก Skill นี้สำคัญมาก แต่ระบบยังไม่มั่นใจในการ extraction
-
-หรือ:
-
-```text
-importance_weight = 0.30
-overall_confidence = 0.99
-```
-
-ความหมาย:
-
-> ระบบมั่นใจมากว่า Skill นี้เป็น Skill เสริมและมีความสำคัญต่ำ
-
-### Final Confidence Flow
-
-```text
-JD
- ↓
-LLM Extraction
- ↓
-skill
-requirement_type
-proficiency_level
-evidence_text
- ↓
-Skill Normalization
- ↓
-Rule Engine
- ├── skill_confidence
- ├── requirement_confidence
- ├── proficiency_confidence
- ├── overall_confidence
- └── importance_weight
- ↓
-market.job_skills
-```
-
-หลักสำคัญ:
-
-> LLM ใช้เพื่อเข้าใจภาษาและ Context  
-> ส่วน Confidence และ Importance ใช้ Rule ที่ทีมกำหนด เพื่อให้ผลสม่ำเสมอ ทดสอบได้ และอธิบายได้
-
-## 12. Final Skill Extraction Output
-
-หลังผ่าน:
-
-```text
-LLM Extraction
-+
-Normalization
-+
-Scoring
-```
-
-Final Output:
+ผลหลัง normalize และเตรียมบันทึกอาจแสดงเป็น:
 
 ```json
 {
   "job_id": 101,
   "skills": [
     {
-      "skill_id": 1,
-      "skill_name": "Python",
-      "raw_skill_name": "Python",
-
+      "skill_id": 12,
+      "skill_name": "PostgreSQL",
+      "raw_skill_name": "Postgres",
       "requirement_type": "required",
-      "proficiency_level": "advanced",
-
-      "importance_weight": 0.97,
-
-      "skill_confidence": 0.99,
-      "requirement_confidence": 0.99,
+      "proficiency_level": "unknown",
+      "importance_weight": 0.88,
+      "skill_confidence": 0.95,
+      "requirement_confidence": 1.0,
       "proficiency_confidence": 0.95,
-      "overall_confidence": 0.98,
-
-      "evidence_text": "Strong Python skills are required.",
-
-      "extraction_method": "llm_rule_hybrid"
-    },
-    {
-      "skill_id": 2,
-      "skill_name": "SQL",
-      "raw_skill_name": "SQL",
-
-      "requirement_type": "preferred",
-      "proficiency_level": "beginner",
-
-      "importance_weight": 0.57,
-
-      "skill_confidence": 0.99,
-      "requirement_confidence": 0.95,
-      "proficiency_confidence": 0.95,
-      "overall_confidence": 0.96,
-
-      "evidence_text": "Basic SQL knowledge is preferred.",
-
-      "extraction_method": "llm_rule_hybrid"
+      "overall_confidence": 0.97,
+      "evidence_text": "Experience using Postgres in production is required.",
+      "extraction_method": "hybrid"
     }
   ]
 }
 ```
 
----
+`skill_id` มาจากการค้น canonical skill ในฐานข้อมูล ไม่ให้ LLM สร้าง ID เอง `skill_name` เป็นชื่อ canonical ที่ join จาก `core.skills`; `raw_skill_name` เก็บรูปคำที่พบใน JD
 
-## 13. Recommended `market.job_skills` Schema
+`extraction_status` ต้องแยก `completed` ที่ไม่พบ skill (`skills: []`) ออกจาก `failed` ที่วิเคราะห์ไม่สำเร็จ งานที่ failed ห้ามถูกนับภายหลังว่าเป็นประกาศที่ไม่มี skill
 
-ควรใช้ประมาณ:
+## 4. Fields and allowed values
+
+### `raw_skill_name`
+
+ข้อความชื่อ skill ที่พบใน JD เช่น `Postgres` หรือ `Amazon Web Services` เก็บตามต้นฉบับเท่าที่ทำได้ เพื่อ audit และช่วยตรวจ normalization
+
+### `requirement_type`
+
+ตอบว่า JD ต้องการ skill นี้ในระดับใด:
+
+| Value | ความหมายและ cue เบื้องต้น |
+|---|---|
+| `required` | ต้องมี เช่น `required`, `must have`, `mandatory` |
+| `preferred` | เป็นข้อได้เปรียบ เช่น `preferred`, `plus`, `bonus`, `nice to have`, `desirable` |
+| `optional` | JD ระบุชัดว่าเป็นทางเลือกหรือเสริม แต่ไม่ได้ใช้เป็นเงื่อนไขคัดเลือก |
+| `unknown` | พบ skill แต่ไม่มีข้อมูลพอจะจัดประเภท |
+
+สำหรับ MVP ให้จัด `plus`, `bonus` และ `nice to have` เป็น `preferred` เพื่อให้กฎไม่ซ้อนกัน ส่วนคำว่า `optional` ใช้เมื่อประกาศระบุชัด หรือบริบทบอกว่าเป็นทักษะเสริมที่ไม่ใช่ข้อได้เปรียบในการคัดเลือก หากไม่มี cue ให้ใช้ `unknown`
+
+ถ้าข้อความปฏิเสธการใช้ skill เช่น `we do not use Java` ให้ไม่นับเป็น skill ที่ต้องการ ถ้าเขียนว่า `Java is not required` แต่ยังไม่ได้ระบุว่าเป็นข้อได้เปรียบ ให้จัดเป็น `optional` เฉพาะเมื่อบริบทสนับสนุน มิฉะนั้นใช้ `unknown`
+
+### `proficiency_level`
+
+ตอบระดับที่ JD คาดหวัง ไม่ใช่การประเมินความสามารถของผู้สมัคร:
 
 ```text
-market.job_skills
+beginner | intermediate | advanced | expert | unknown
+```
 
+กฎเริ่มต้น:
+
+| Cue ใน JD | Level เบื้องต้น | Confidence เริ่มต้น |
+|---|---|---:|
+| ระบุระดับตรง ๆ ว่า `beginner` | `beginner` | 0.95 |
+| `basic`, `fundamental` | `beginner` | 0.90 |
+| ระบุระดับตรง ๆ ว่า `intermediate` | `intermediate` | 0.95 |
+| `working knowledge`, `practical experience` | `intermediate` | 0.85 |
+| ระบุระดับตรง ๆ ว่า `advanced` | `advanced` | 0.95 |
+| `strong`, `solid`, `proficient` | `advanced` | 0.80 |
+| ระบุระดับตรง ๆ ว่า `expert` | `expert` | 0.98 |
+| `deep expertise`, `specialist` | `expert` | 0.90 |
+| ไม่มี cue ระดับที่ชัดเจน | `unknown` | 0.95 |
+
+ถ้า JD ระบุชื่อระดับตรง ๆ เช่น `advanced Python skills` จะได้ confidence สูงกว่าการอนุมานจากคำกว้าง ๆ เช่น `strong Python skills` ตารางนี้เป็น heuristic เริ่มต้น ไม่ใช่มาตรฐานสากล จึงต้องเก็บ evidence และทบทวนตัวอย่างจริงก่อนใช้ตัดสินอัตโนมัติ จำนวนปีประสบการณ์เพียงอย่างเดียวไม่แปลเป็นระดับแบบตายตัว เช่น `3 years` ไม่ได้แปลว่า `advanced` เสมอไป
+
+### `evidence_text`
+
+เก็บข้อความจริงจาก JD ที่รองรับการระบุ skill และ context ห้ามให้ LLM เขียนประโยคหลักฐานขึ้นใหม่ หากหา span จากต้นฉบับไม่พบ ให้ผลตรวจไม่ผ่านหรือส่ง review
+
+### `extraction_method`
+
+ใช้ค่ามาตรฐานชุดเดียว:
+
+```text
+llm | rule | hybrid | manual
+```
+
+ใช้ `hybrid` เมื่อมีทั้ง LLM และกฎ deterministic ใน record นั้น ไม่ใช้ `llm_rule_hybrid` เป็นอีกค่าหนึ่ง เพื่อป้องกันค่า method หลายชื่อที่มีความหมายเดียวกัน
+
+## 5. LLM output and validation
+
+LLM ส่งเฉพาะข้อมูลเชิงความหมายต่อ skill:
+
+```json
+{
+  "raw_skill_name": "Python",
+  "requirement_type": "required",
+  "proficiency_level": "advanced",
+  "evidence_text": "Strong Python skills are required."
+}
+```
+
+LLM ไม่ส่ง `skill_id`, `importance_weight` หรือ confidence scores ให้ระบบเชื่อโดยตรง Rule engine ต้องตรวจว่า:
+
+- ค่า enum อยู่ในชุดที่อนุญาต
+- `evidence_text` มีอยู่จริงใน JD ที่ส่งเข้าไป
+- skill ไม่ได้ถูกกล่าวถึงในบริบทปฏิเสธหรือไม่เกี่ยวกับความต้องการของงาน
+- ชื่อซ้ำใน JD เดียวกันถูกรวมเป็นหนึ่ง record ต่อ canonical skill
+
+ถ้า LLM ส่ง JSON ผิดรูปแบบหรือ evidence ใช้ไม่ได้ ให้ retry ได้ตามจำนวนที่ตั้งไว้ หากยังไม่สำเร็จให้ทำเครื่องหมาย `failed` พร้อม log สาเหตุ; อย่าแปลงความล้มเหลวเป็น `skills: []` แบบ completed
+
+## 6. Duplicate mentions and conflicting context
+
+ฐานข้อมูลมีหนึ่ง record ต่อคู่ `(job_id, skill_id)` ดังนั้นให้รวมการกล่าวถึง canonical skill เดียวกันใน JD เดียวเป็นหนึ่ง record:
+
+- เก็บ `evidence_text` ที่ชัดที่สุดและรองรับผลที่เลือก
+- เลือก requirement ที่มีน้ำหนักชัดที่สุดตามลำดับ `required` > `preferred` > `optional` > `unknown` เมื่อมีหลักฐานตรงกัน
+- เลือก proficiency จากหลักฐานระดับที่ชัดที่สุด ไม่ใช้จำนวนปีหรือชื่อตำแหน่งเดาแทน
+- ถ้าบริบทขัดแย้งจนเลือกผลไม่ได้ ให้ลด confidence และใช้ `unknown` ใน field ที่ขัดแย้ง
+
+MVP เก็บ evidence หนึ่งช่วงต่อ skill หากภายหลังต้องตรวจหลายบริบทพร้อมกัน ค่อยพิจารณาเก็บ evidence หลายรายการแยกตาราง/JSON
+
+## 7. Skill normalization
+
+Normalize หลัง LLM ระบุ `raw_skill_name`:
+
+```text
+Postgres | Postgre SQL | PostgreSQL
+                 ↓
+        PostgreSQL (canonical)
+```
+
+ลำดับ MVP:
+
+1. exact canonical match ใน `core.skills`
+2. exact alias match ใน `core.skill_aliases`
+3. ถ้ายังไม่พบ ให้เก็บเป็น unmatched/review candidate ไม่สร้าง `skill_id` โดยเดา
+
+Fuzzy matching, RapidFuzz และ embedding เป็นทางเลือกสำหรับระยะถัดไป ไม่ใช่เงื่อนไขจำเป็นของ MVP การเพิ่ม alias ที่ยืนยันแล้วเป็นวิธีแก้รายการ unmatched ในช่วงแรก
+
+## 8. Importance weight
+
+`importance_weight` คือคะแนนความสำคัญของ skill ต่อประกาศนั้น อยู่ในช่วง `0.0–1.0` คำนวณด้วยกฎ ไม่ให้ LLM กำหนด:
+
+```text
+importance_weight
+= 0.7 × requirement_score + 0.3 × proficiency_score
+```
+
+Requirement score:
+
+```text
+required = 1.00 | preferred = 0.60 | optional = 0.30 | unknown = 0.40
+```
+
+Proficiency score:
+
+```text
+expert = 1.00 | advanced = 0.90 | intermediate = 0.70
+beginner = 0.50 | unknown = 0.60
+```
+
+ตัวอย่าง `required + advanced` ได้ `0.7(1.00) + 0.3(0.90) = 0.97` ส่วน `preferred + beginner` ได้ `0.57` ค่าเหล่านี้เป็นนโยบายเริ่มต้นของโปรเจกต์ ควรเก็บเป็น versioned rule และทบทวนหลังเห็นผลกับข้อมูลจริง
+
+## 9. Confidence
+
+Confidence เป็นคะแนน heuristic ที่บอกความชัดเจนของการจัดประเภท ไม่ใช่ความน่าจะเป็นที่รับประกันความถูกต้อง และไม่ใช่ความสำคัญของ skill
+
+แยกเป็น:
+
+| Field | ตรวจอะไร |
+|---|---|
+| `skill_confidence` | ระบุ skill จากข้อความได้ตรงแค่ไหน |
+| `requirement_confidence` | จัด required/preferred/optional/unknown ได้ชัดแค่ไหน |
+| `proficiency_confidence` | จัดระดับ proficiency ได้ชัดแค่ไหน รวมถึงมั่นใจว่าเป็น `unknown` |
+| `overall_confidence` | คะแนนสรุปจากสาม field |
+
+คะแนนเริ่มต้นสำหรับ skill match:
+
+| วิธีพบ skill | Score เบื้องต้น |
+|---|---:|
+| exact canonical | 1.00 |
+| exact alias | 0.95 |
+| LLM inference ที่มีหลักฐานบริบทชัด | 0.60 |
+
+Fuzzy/embedding scores ยังไม่อยู่ใน MVP เพราะ fuzzy/embedding matching ถูกเลื่อนไประยะถัดไป คะแนนตารางทั้งหมดเป็นค่าเริ่มต้นที่ต้องเทียบกับตัวอย่างซึ่งคนตรวจแล้ว ไม่ใช่ค่าที่ calibrate แล้ว
+
+คำนวณ:
+
+```text
+overall_confidence
+= 0.40 × skill_confidence
+ + 0.35 × requirement_confidence
+ + 0.25 × proficiency_confidence
+```
+
+การได้ `proficiency_level = unknown` พร้อม confidence สูง หมายถึงระบบมั่นใจว่าข้อความไม่ระบุระดับ ไม่ได้หมายถึงระบบรู้ระดับของ skill นั้น
+
+Threshold ต่อไปนี้ใช้เป็น **คำแนะนำสำหรับ review เท่านั้น** ใน MVP ห้าม reject record อัตโนมัติจาก threshold ก่อนตรวจผลกับ JD จริง:
+
+| Overall confidence | แนวทาง |
+|---|---|
+| `>= 0.85` | รับอัตโนมัติได้หลังผ่านหลักฐานและ schema validation |
+| `0.65–0.84` | เก็บผลและติดสถานะ uncertain |
+| `0.50–0.64` | ส่ง review |
+| `< 0.50` | ส่ง review; ยังเก็บ raw/extraction result ไว้ |
+
+## 10. Storage target and schema alignment
+
+ผลต่อประกาศมีข้อมูลระดับ `market.job_skills` ดังนี้:
+
+```text
 job_id
 skill_id
 raw_skill_name
-
 requirement_type
 proficiency_level
-
 importance_weight
-
 skill_confidence
 requirement_confidence
 proficiency_confidence
 overall_confidence
-
 evidence_text
 extraction_method
-
 created_at
 ```
 
----
+ตัวอย่าง JSON ที่แสดง `skill_name` เป็น convenience representation; ใน relational schema ชื่อ canonical มาจาก `core.skills` ผ่าน `skill_id` ส่วน `raw_skill_name` ต้องเก็บบน job-skill record หากต้องการตรวจคำต้นฉบับย้อนหลัง
 
-## 14. Why Evidence Text Is Important
+ณ ตอนเขียน spec นี้ DBML ยังมี `confidence` ค่าเดียวและไม่มี `raw_skill_name` หรือ confidence แยกสี่ค่า ดังนั้นรายการด้านบนเป็น **target contract** ไม่ใช่คำกล่าวว่า schema/migration ปัจจุบันรองรับครบแล้ว ต้องปรับ DBML และสร้าง migration ก่อน load ฟิลด์ที่ยังไม่มี ค่า `proficiency_level` ใน DBML ต้องจำกัดให้ตรงกับ `beginner`, `intermediate`, `advanced`, `expert`, `unknown`
 
-`evidence_text` ช่วย:
+## 11. Aggregation contract (later stage)
 
-1. Debug Extraction
-2. Explain Result
-3. Human Validation
-4. Improve Prompt
-5. Review Wrong Classification
-
-ตัวอย่าง:
-
-```json
-{
-  "skill": "Kafka",
-  "requirement_type": "preferred",
-  "proficiency_level": "beginner",
-  "evidence_text": "Basic Kafka knowledge would be a plus."
-}
-```
-
----
-
-## 15. Extraction Method
-
-ค่าที่แนะนำ:
+Aggregate จาก job-skill records หลัง normalize แล้ว แยกตาม career profile และช่วงวันที่ที่ระบุ:
 
 ```text
-llm
-rule
-hybrid
-manual
+demand_count = จำนวน job ที่มี canonical skill นี้ (นับ job ไม่ใช่จำนวน mention)
+total_jobs = จำนวน job ในกลุ่มที่ extraction_status = completed และมี JD ใช้ได้
+demand_percentage = demand_count / total_jobs × 100
+required_count / preferred_count / optional_count = จำนวน job ต่อ requirement type
+weighted_demand_score = SUM(importance_weight) / total_jobs
 ```
 
-สำหรับ Glow-Job เหมาะกับ:
+งานที่ extraction ล้มเหลวหรือไม่มี JD ใช้ได้ไม่รวมใน `total_jobs`; งานที่สำเร็จแต่ไม่พบ skill รวมอยู่ใน denominator และมี skills ว่าง การกำหนดกลุ่ม career, date window และจำนวนตัวอย่างต้องแนบกับ aggregate result
 
-```text
-llm_rule_hybrid
-```
+สำหรับ `target_level` ให้พิจารณาเฉพาะ job-skill ที่มี proficiency ไม่ใช่ `unknown`; เลือกระดับที่พบบ่อยที่สุด และคำนวณ `target_level_confidence` เป็นสัดส่วนของระดับนั้นใน observations ที่ใช้ได้ `level_observation_count` คือจำนวน observations ดังกล่าว กรณีเสมอกันให้เป็น `unknown` จนกว่าจะมีกฎเพิ่ม
 
-เพราะ:
+ค่า threshold สำหรับ `importance_tier` (`core`, `important`, `optional`, `unknown`) ยังไม่กำหนดใน spec นี้ เพราะต้องดู distribution ของตลาดจริงก่อน จึงไม่ควรสร้าง tier อัตโนมัติจนกว่าจะตกลง threshold
 
-```text
-LLM
-→ Context Understanding
+## 12. MVP and later work
 
-Rule
-→ Standardization / Scoring
+MVP ของ skill extraction:
 
-Skill Master
-→ Normalization
-```
+- รับ JD ที่ผ่าน cleaning แล้ว และ extract ทีละ job
+- ใช้ NLP เตรียมข้อความ/หา candidates ร่วมกับ LLM วิเคราะห์ context
+- คืน raw skill, requirement type, proficiency เมื่อมีหลักฐาน และ evidence
+- ตรวจ schema/evidence, normalize ด้วย canonical/alias match และคำนวณ weight/confidence ด้วย rule
+- เก็บสถานะ completed/failed และไม่ทิ้งผลที่ confidence ต่ำโดยอัตโนมัติ
+- ทดสอบกับชุด JD ที่คนตรวจผลคาดหวังไว้
 
----
+งานต่อยอด:
 
-## 16. Market Aggregation
+- fuzzy/embedding matching และ review UI
+- ปรับ confidence/threshold จากผลประเมินจริง
+- เลือก LLM provider/model และตั้ง cost, timeout, retry, rate limit
+- สรุป importance tier หลังดู distribution
+- เพิ่มการเก็บหลาย evidence ต่อ skill หากมี use case ชัดเจน
 
-เมื่อมี `market.job_skills` จากหลาย Job แล้ว จึง aggregate เป็น:
+ก่อนเชื่อมผู้ให้บริการ LLM ต้องกำหนดว่าจะส่ง JD ส่วนใดออกไป และห้ามบันทึก API key หรือข้อมูลลับลง log
 
-```text
-market.career_skill_stats
-```
+## 13. Acceptance checks
 
-ตัวอย่าง:
+ก่อนถือว่า MVP ใช้งานได้ ต้องตรวจว่า:
 
-```text
-200 Data Engineer Jobs
-
-Python found = 170
-
-required = 140
-preferred = 25
-optional = 5
-```
-
-ได้:
-
-```text
-demand_count = 170
-total_jobs = 200
-demand_percentage = 85%
-```
-
----
-
-## 17. Weighted Market Demand
-
-เพื่อไม่ให้ Skill ที่ Optional เยอะมีน้ำหนักเท่ากับ Skill ที่ Required เยอะ
-
-แนะนำ:
-
-```text
-weighted_demand_score
-=
-SUM(job_skill.importance_weight)
-/
-total_jobs
-```
-
-ดังนั้น Skill ที่มีทั้ง frequency สูงและ importance สูงจะเด่นขึ้น
-
----
-
-## 18. Market Target Level
-
-ใช้ `proficiency_level` ของหลาย Job เพื่อหา `target_level`
-
-ตัวอย่าง Airflow:
-
-```text
-beginner      10
-intermediate  45
-advanced      20
-unknown       15
-```
-
-ไม่ใช้ `unknown` ในการเลือกระดับเป้าหมาย
-
-```text
-level_observation_count = 75
-```
-
-แล้วสามารถสรุป:
-
-```text
-target_level = intermediate
-```
-
-ในอนาคตสามารถเพิ่ม weighting ให้ Required JD มีน้ำหนักมากกว่า Preferred JD ได้
-
----
-
-## 19. `career_skill_stats` Example
-
-```json
-{
-  "career": "Data Engineer",
-  "skill_id": 3,
-  "skill_name": "Apache Airflow",
-
-  "demand_count": 110,
-  "total_jobs": 240,
-  "demand_percentage": 45.83,
-
-  "required_count": 70,
-  "preferred_count": 32,
-  "optional_count": 8,
-
-  "weighted_demand_score": 0.39,
-
-  "target_level": "intermediate",
-  "target_level_confidence": 0.72,
-  "level_observation_count": 66,
-
-  "importance_tier": "important"
-}
-```
-
----
-
-## 20. Full Processing Example
-
-Input JD:
-
-```text
-We are looking for a Data Engineer with strong Python skills.
-Advanced Python programming is required.
-
-Candidates should have experience with SQL and relational databases.
-
-Basic Kafka knowledge would be a plus.
-```
-
-### Step 1 — LLM Extraction
-
-```json
-[
-  {
-    "skill": "Python",
-    "requirement_type": "required",
-    "proficiency_level": "advanced",
-    "evidence_text": "Advanced Python programming is required."
-  },
-  {
-    "skill": "SQL",
-    "requirement_type": "required",
-    "proficiency_level": "unknown",
-    "evidence_text": "Candidates should have experience with SQL and relational databases."
-  },
-  {
-    "skill": "Kafka",
-    "requirement_type": "preferred",
-    "proficiency_level": "beginner",
-    "evidence_text": "Basic Kafka knowledge would be a plus."
-  }
-]
-```
-
-### Step 2 — Normalization
-
-```text
-Python → Python
-SQL → SQL
-Kafka → Apache Kafka
-```
-
-### Step 3 — Importance
-
-```text
-Python
-required + advanced
-→ 0.97
-
-SQL
-required + unknown
-→ 0.88
-
-Kafka
-preferred + beginner
-→ 0.57
-```
-
-### Step 4 — Confidence
-
-ประเมินจาก explicit evidence ของแต่ละ Field
-
-### Step 5 — Save
-
-```text
-market.job_skills
-```
-
----
-
-## 21. Responsibilities
-
-### LLM / NLP
-
-รับผิดชอบ:
-
-```text
-Skill Detection
-Requirement Classification
-Proficiency Classification
-Evidence Extraction
-Context Understanding
-```
-
-### Rule Engine
-
-รับผิดชอบ:
-
-```text
-Importance Calculation
-Confidence Calculation
-Threshold
-Validation Rules
-```
-
-### Skill Normalization
-
-รับผิดชอบ:
-
-```text
-raw skill
-→ core.skills.skill_id
-```
-
-ใช้:
-
-```text
-Exact Match
-Alias
-RapidFuzz
-Embedding fallback
-```
-
-### Market Aggregation
-
-รับผิดชอบ:
-
-```text
-market.job_skills
-→ market.career_skill_stats
-```
-
----
-
-## 22. Recommended Final Architecture
-
-```text
-                    Job Description
-                           │
-                           ▼
-                    Text Preparation
-                           │
-                           ▼
-                     LLM Extraction
-                           │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-       Skill         Requirement         Proficiency
-         │                 │                 │
-         └─────────────────┼─────────────────┘
-                           │
-                           ▼
-                    Evidence Text
-                           │
-                           ▼
-                  Skill Normalization
-                           │
-                           ▼
-                      Rule Engine
-                    /             \
-                   /               \
-         Importance Weight       Confidence
-                   \               /
-                    \             /
-                           ▼
-                   market.job_skills
-                           │
-                           ▼
-                  Market Aggregation
-                           │
-                           ▼
-               market.career_skill_stats
-                           │
-                           ▼
-                   Career Baseline
-                           │
-                           ▼
-                       AI Agent
-```
-
----
-
-## 23. Key Design Decisions
-
-ทีมควรยึดหลัก:
-
-1. **LLM อ่าน Context แต่ไม่ควรสร้างคะแนน arbitrary**
-2. `requirement_type` และ `proficiency_level` เป็นคนละมิติ
-3. `importance_weight` ต้อง deterministic
-4. Confidence ต้องสะท้อนความชัดเจนของ Evidence
-5. ควรแยก Confidence ต่อ Field
-6. `evidence_text` ต้องเก็บเพื่อ Debug และ Explain
-7. Skill ต้อง Normalize ก่อนลง Market Analytics
-8. Job-level data อยู่ใน `market.job_skills`
-9. Career-level summary อยู่ใน `market.career_skill_stats`
-10. AI Agent ควรใช้ Market Summary ไม่ควรต้องอ่าน JD ทั้งหมดทุกครั้ง
-
----
-
-## 24. Summary
-
-Final Skill Extraction ของ Glow-Job ไม่ใช่เพียง:
-
-```json
-["Python", "SQL", "Airflow"]
-```
-
-แต่เป็น:
-
-```text
-Skill
-+
-Requirement
-+
-Required Proficiency
-+
-Importance
-+
-Confidence
-+
-Evidence
-```
-
-สิ่งนี้ทำให้ระบบสามารถเปลี่ยน:
-
-```text
-Raw Job Descriptions
-```
-
-ให้กลายเป็น:
-
-```text
-Structured Job Market Intelligence
-```
-
-และสุดท้าย Agent สามารถตอบได้ว่า:
-
-```text
-ตลาดต้องการ Skill อะไร
-Skill ไหนสำคัญ
-ต้องเก่งระดับไหน
-User ยังขาดอะไร
-และควรพัฒนาอะไรต่อ
-```
+1. skill ที่ระบบคืนมีหลักฐานอยู่ใน JD จริง
+2. แยก required, preferred, optional และ unknown ตาม cue ที่ตกลงไว้
+3. ไม่ extract skill จากบริบทปฏิเสธว่าไม่ใช้
+4. ไม่เดา proficiency เมื่อไม่มีข้อความรองรับ
+5. รวม alias ให้ canonical skill เดียวและคง raw name ไว้
+6. job หนึ่งรายการไม่มี skill ซ้ำหลัง normalize
+7. ผล completed ที่ไม่มี skill แยกจาก extraction failure
+8. importance/confidence คำนวณซ้ำแล้วได้ผลเดิม และตรวจย้อนสูตรได้
+9. aggregation ใช้เฉพาะ job ที่ extraction สำเร็จเป็น denominator
