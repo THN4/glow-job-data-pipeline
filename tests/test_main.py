@@ -63,6 +63,8 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     ].queries[0]
     assert cleaned_jobs[0]["job"]["job_country"] == "TH"
     assert cleaned_jobs[0]["job"]["posted_at_is_estimated"] is False
+    assert cleaned_jobs[0]["job"]["career_slug"] == "data_engineer"
+    assert cleaned_jobs[0]["job"]["normalized_job_title"] == "Data Engineer"
     assert cleaned_jobs[0]["matches"] == [cleaned_jobs[0]["metadata"]]
     assert "Validation completed: valid_jobs=6, invalid_jobs=0" in caplog.text
     assert "Cleaning completed: cleaned_jobs=6, rejected_after_cleaning=0" in caplog.text
@@ -144,6 +146,7 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
     assert unique_jobs[0]["job"]["company_normalization"]["match_method"] == (
         "candidate_review"
     )
+    assert unique_jobs[0]["job"]["career_slug"] == "data_engineer"
     report_path = review_output_dir / f"{run_id}.csv"
     assert report_path.exists()
     assert "Siam Commercial Ban" in report_path.read_text(encoding="utf-8-sig")

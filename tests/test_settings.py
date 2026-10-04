@@ -14,6 +14,7 @@ def test_default_configuration_loads() -> None:
     assert settings.validation.time_window_days == 90
     assert settings.validation.minimum_description_length == 100
     assert settings.careers["data_engineer"].queries
+    assert "Cloud Data Engineer" in settings.careers["data_engineer"].title_aliases
 
 
 def test_careers_can_be_added_without_code_changes(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from src.storage.company_review_storage import save_company_match_candidates
 from src.transform.job_cleaner import clean_jobs
 from src.transform.deduplicator import deduplicate_jobs
 from src.transform.company_normalizer import normalize_job_companies
+from src.transform.career_mapper import map_careers
 from src.validation.job_validator import validate_jobs
 
 
@@ -124,7 +125,21 @@ def main(
     if review_report is not None:
         logger.info("Company match review report saved: %s", review_report)
 
-    return normalized_jobs
+    career_mapped_jobs = map_careers(normalized_jobs, settings.careers)
+    career_status_counts = Counter(
+        entry["job"]["career_mapping_status"]
+        for entry in career_mapped_jobs
+        if isinstance(entry.get("job"), dict)
+        and isinstance(entry["job"].get("career_mapping_status"), str)
+    )
+    logger.info(
+        "Career mapping completed: mapped=%d, ambiguous=%d, unmapped=%d",
+        career_status_counts.get("mapped", 0),
+        career_status_counts.get("ambiguous", 0),
+        career_status_counts.get("unmapped", 0),
+    )
+
+    return career_mapped_jobs
 
 
 if __name__ == "__main__":
