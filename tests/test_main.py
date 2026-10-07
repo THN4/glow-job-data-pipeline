@@ -1,8 +1,12 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from src.config.settings import load_settings
 from src.main import main
+from src.skills.gemini_client import GeminiRateLimitError
 from src.storage.raw_storage import load_raw_result, save_raw_result
+from src.storage.skill_result_storage import load_skill_results
 
 
 def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog):
@@ -45,7 +49,13 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     def fail_if_extraction_runs(*args, **kwargs):
         raise AssertionError("Replay mode must not call the JSearch extractor")
 
+    def fail_if_skill_extraction_runs(*args, **kwargs):
+        raise AssertionError("Skill extraction must be explicitly enabled")
+
     monkeypatch.setattr("src.main.extract_jobs", fail_if_extraction_runs)
+    monkeypatch.setattr(
+        "src.main.extract_skills_for_jobs", fail_if_skill_extraction_runs
+    )
 
     cleaned_jobs = main(
         replay_run_id=run_id,
@@ -76,6 +86,75 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
         expected_query_count=expected_query_count,
     )
     assert raw_results[0]["response"]["data"][0]["job_title"].startswith("  ")
+
+    captured_jobs = []
+
+    def fake_extract_skills(jobs):
+        captured_jobs.extend(jobs)
+        return [
+            {**entry, "extraction_status": "completed", "skills": []}
+            for entry in jobs
+        ]
+
+    monkeypatch.setattr("src.main.extract_skills_for_jobs", fake_extract_skills)
+    waits = []
+    monkeypatch.setattr("src.main.time.sleep", waits.append)
+    skill_dir = tmp_path / "skill-results"
+    skill_jobs = main(
+        replay_run_id=run_id,
+        extract_skills=True,
+        skill_limit=2,
+        skill_output_dir=skill_dir,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "company-review",
+    )
+
+    assert len(captured_jobs) == 2
+    assert len(waits) == 1 and 0 < waits[0] <= 10
+    assert len(skill_jobs) == 2
+    assert captured_jobs[0]["job"]["career_slug"] == "data_engineer"
+    assert skill_jobs[0]["extraction_status"] == "completed"
+    assert skill_jobs[0]["metadata"]["run_id"] == run_id
+    assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == 2
+
+    def rate_limited(_jobs):
+        raise GeminiRateLimitError("Gemini rate limit reached (HTTP 429)")
+
+    monkeypatch.setattr("src.main.extract_skills_for_jobs", rate_limited)
+    with pytest.raises(GeminiRateLimitError, match="HTTP 429"):
+        main(
+            replay_run_id=run_id,
+            extract_skills=True,
+            skill_request_interval=0,
+            skill_output_dir=skill_dir,
+            raw_output_dir=tmp_path,
+            company_review_output_dir=tmp_path / "company-review",
+        )
+    assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == 2
+
+    monkeypatch.setattr("src.main.extract_skills_for_jobs", fake_extract_skills)
+    skill_jobs = main(
+        replay_run_id=run_id,
+        extract_skills=True,
+        skill_request_interval=0,
+        skill_output_dir=skill_dir,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "company-review",
+    )
+    assert len(skill_jobs) == expected_query_count
+    assert len(captured_jobs) == expected_query_count
+    assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == expected_query_count
+
+    monkeypatch.setattr("src.main.extract_skills_for_jobs", fail_if_skill_extraction_runs)
+    skill_jobs = main(
+        replay_run_id=run_id,
+        extract_skills=True,
+        skill_output_dir=skill_dir,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "company-review",
+    )
+    assert len(skill_jobs) == expected_query_count
+    assert "Skill extraction completed: jobs=6, completed=6, failed=0" in caplog.text
 
 
 def test_main_deduplicates_across_queries_and_keeps_match_metadata(

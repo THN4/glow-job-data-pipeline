@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,8 +10,10 @@ from pathlib import Path
 from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
+from src.skills.extractor import extract_skills_for_jobs
 from src.storage.raw_storage import load_raw_result
 from src.storage.company_review_storage import save_company_match_candidates
+from src.storage.skill_result_storage import load_skill_results, save_skill_results
 from src.transform.job_cleaner import clean_jobs
 from src.transform.deduplicator import deduplicate_jobs
 from src.transform.company_normalizer import normalize_job_companies
@@ -21,12 +24,21 @@ from src.validation.job_validator import validate_jobs
 def main(
     *,
     replay_run_id: str | None = None,
+    extract_skills: bool = False,
+    skill_limit: int | None = None,
+    skill_request_interval: float = 10.0,
+    skill_output_dir: Path = Path("data/processed/skill_extraction"),
     raw_output_dir: Path = Path("data/raw"),
     company_review_output_dir: Path = Path(
         "data/processed/company_match_candidates"
     ),
 ) -> list[dict[str, object]]:
-    """Load or fetch raw data, then return deduplicated cleaned job records."""
+    """Prepare job records and optionally extract their skills with Gemini."""
+    if skill_limit is not None:
+        if not extract_skills or isinstance(skill_limit, bool) or skill_limit < 1:
+            raise ValueError("skill_limit must be positive and requires extract_skills")
+    if skill_request_interval < 0:
+        raise ValueError("skill_request_interval must be non-negative")
     configure_logging()
     logger = logging.getLogger(__name__)
     settings = load_settings()
@@ -139,6 +151,76 @@ def main(
         career_status_counts.get("unmapped", 0),
     )
 
+    if extract_skills:
+        target_jobs = career_mapped_jobs[:skill_limit]
+        saved_jobs = load_skill_results(
+            run_id=active_run_id, output_dir=skill_output_dir
+        )
+        if len(saved_jobs) > len(career_mapped_jobs):
+            raise ValueError("Skill checkpoint contains more jobs than the raw run")
+
+        identity_fields = ("job_id", "job_url", "job_title", "job_description")
+        for index, saved_entry in enumerate(saved_jobs):
+            saved_job = saved_entry.get("job")
+            current_job = career_mapped_jobs[index].get("job")
+            if not isinstance(saved_job, dict) or not isinstance(current_job, dict) or any(
+                saved_job.get(field) != current_job.get(field)
+                for field in identity_fields
+            ):
+                raise ValueError(
+                    "Skill checkpoint does not match the raw run at job "
+                    f"{index + 1}"
+                )
+            if saved_entry.get("extraction_status") not in {"completed", "failed"} or not isinstance(
+                saved_entry.get("skills"), list
+            ):
+                raise ValueError(f"Invalid skill checkpoint at job {index + 1}")
+
+        skill_jobs = []
+        last_request_started: float | None = None
+        for index, entry in enumerate(target_jobs):
+            if index < len(saved_jobs) and saved_jobs[index].get(
+                "extraction_status"
+            ) == "completed":
+                completed_entry = dict(entry)
+                completed_entry["skills"] = saved_jobs[index]["skills"]
+                completed_entry["extraction_status"] = "completed"
+                skill_jobs.append(completed_entry)
+                continue
+
+            if last_request_started is not None:
+                wait_seconds = skill_request_interval - (
+                    time.monotonic() - last_request_started
+                )
+                if wait_seconds > 0:
+                    time.sleep(wait_seconds)
+            last_request_started = time.monotonic()
+            result = extract_skills_for_jobs([entry])[0]
+            if index < len(saved_jobs):
+                saved_jobs[index] = result
+            else:
+                saved_jobs.append(result)
+            save_skill_results(
+                saved_jobs, run_id=active_run_id, output_dir=skill_output_dir
+            )
+            skill_jobs.append(result)
+
+        if not saved_jobs:
+            save_skill_results([], run_id=active_run_id, output_dir=skill_output_dir)
+        skill_status_counts = Counter(
+            entry.get("extraction_status") for entry in skill_jobs
+        )
+        logger.info(
+            "Skill extraction completed: jobs=%d, completed=%d, failed=%d",
+            len(skill_jobs),
+            skill_status_counts.get("completed", 0),
+            skill_status_counts.get("failed", 0),
+        )
+        logger.info(
+            "Skill results saved: %s", skill_output_dir / f"{active_run_id}.json"
+        )
+        return skill_jobs
+
     return career_mapped_jobs
 
 
@@ -148,5 +230,26 @@ if __name__ == "__main__":
         "--replay-run-id",
         help="Load a previously saved raw run instead of calling JSearch.",
     )
+    parser.add_argument(
+        "--extract-skills",
+        action="store_true",
+        help="Call Gemini once for each unique job after career mapping.",
+    )
+    parser.add_argument(
+        "--skill-limit",
+        type=int,
+        help="Process only the first N unique jobs (requires --extract-skills).",
+    )
+    parser.add_argument(
+        "--skill-request-interval",
+        type=float,
+        default=10.0,
+        help="Minimum seconds between starts of new Gemini requests (default: 10).",
+    )
     arguments = parser.parse_args()
-    result = main(replay_run_id=arguments.replay_run_id)
+    result = main(
+        replay_run_id=arguments.replay_run_id,
+        extract_skills=arguments.extract_skills,
+        skill_limit=arguments.skill_limit,
+        skill_request_interval=arguments.skill_request_interval,
+    )

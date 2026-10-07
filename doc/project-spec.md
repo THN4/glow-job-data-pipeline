@@ -648,6 +648,12 @@ the same posting can be returned by more than one query or ingestion run.
 
 Skills should be extracted from each Job Description.
 
+The detailed extraction contract, field definitions, scoring rules, and MVP
+boundaries are maintained in
+[glow_job_skill_extraction_spec.md](glow_job_skill_extraction_spec.md). That
+document is the source of detail for skill extraction; this project spec keeps
+the pipeline-level overview.
+
 Flow:
 
 ```text
@@ -685,19 +691,22 @@ Kafka    → preferred
 
 # 23. Skill Extraction Approach
 
-Initial recommended approach:
+The intended approach combines context-aware LLM extraction with NLP/text
+preparation, canonical skill normalization, and deterministic scoring. See the
+dedicated skill extraction specification for the current MVP contract and
+deferred work.
+
+High-level flow:
 
 ```text
-LLM-based extraction
-        +
-Skill Dictionary
-        +
-Normalization Rules
+NLP preparation / candidate detection
+        ↓
+LLM context extraction
+        ↓
+Canonical skill lookup
+        ↓
+Rule-based scores
 ```
-
-The LLM should identify candidate skills.
-
-The normalization layer should map extracted values into canonical skill records.
 
 ---
 
@@ -785,25 +794,17 @@ Skills extracted from individual Job Descriptions should be stored in:
 job_skills
 ```
 
-Suggested schema:
+The per-job output contract and target fields are defined in
+[glow_job_skill_extraction_spec.md](glow_job_skill_extraction_spec.md). The
+physical database schema must be kept aligned through the DBML design and a
+database migration before loading any target fields that are not yet present.
+
+High-level relationship:
 
 ```text
-job_id
-skill_id
-
-requirement_type
-confidence
-
-created_at
-```
-
-Requirement types may include:
-
-```text
-required
-preferred
-optional
-unknown
+one job posting
+    ↓
+one row per normalized skill (job_id + skill_id)
 ```
 
 Example:
@@ -821,26 +822,30 @@ Kafka    preferred
 
 # 27. Skill Extraction Confidence
 
-When supported by the extraction method, the pipeline may store:
+Confidence and importance are separate values: confidence describes how clear
+the extraction evidence is; importance describes how much the job requires the
+skill. The dedicated skill extraction specification defines the fields and
+deterministic rules. These rules are initial heuristics and must be checked
+against reviewed job descriptions before they drive automated decisions.
+
+The target per-field confidence fields are:
 
 ```text
-confidence
+skill_confidence
+requirement_confidence
+proficiency_confidence
+overall_confidence
 ```
-
-Example:
-
-```text
-Python  required   0.98
-Kafka   preferred  0.90
-```
-
-Confidence should be used as metadata rather than treated as absolute truth.
 
 ---
 
 # 28. Career Skill Aggregation
 
 After `job_skills` are available, the system should calculate market-level skill demand.
+
+The detailed aggregation definitions, including successful-extraction
+denominators and weighted demand, are in
+[glow_job_skill_extraction_spec.md](glow_job_skill_extraction_spec.md).
 
 Example:
 
