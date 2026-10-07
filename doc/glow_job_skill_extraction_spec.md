@@ -11,11 +11,11 @@
 ```text
 Clean Job Description
         ↓
-NLP text preparation / candidate detection
-        ↓
 LLM context extraction
         ↓
 Validate evidence and output
+        ↓
+Find canonical skill candidates from skills/aliases
         ↓
 Normalize raw skill to canonical skill
         ↓
@@ -30,13 +30,13 @@ Career-level aggregation (later stage)
 
 | Component | Responsibility |
 |---|---|
-| NLP/text preparation | แบ่งข้อความเป็นประโยคและส่วนย่อย เตรียมข้อความสะอาด และช่วยหา candidate skill |
+| Job cleaning | เตรียม JD ให้อ่านได้ก่อนส่งให้ LLM; ไม่ต้องหา candidate skill ล่วงหน้า |
 | LLM | อ่านบริบทและส่ง `raw_skill_name`, `requirement_type`, `proficiency_level` และ `evidence_text` ตามรูปแบบที่กำหนด |
-| Skill normalization | map ชื่อที่พบไปยัง canonical skill และ `skill_id` จาก `core.skills` / `core.skill_aliases` |
+| Skill normalization | ใช้ `raw_skill_name` ค้น canonical candidates จาก `core.skills` / `core.skill_aliases` แล้วจึงยืนยันการจับคู่และกำหนด `skill_id` |
 | Rule engine | ตรวจผล คำนวณ `importance_weight` และ confidence ด้วยกฎที่กำหนด ไม่รับตัวเลขคะแนนที่ LLM คิดเอง |
 | Aggregation | สรุปผลจากหลาย job ใน career และช่วงเวลาที่ระบุ |
 
-NLP และ LLM เป็นแนวทางของระบบ แต่ยังไม่ผูกกับ library หรือผู้ให้บริการ LLM รายใด การเลือกเครื่องมือและค่าใช้บริการเป็นการตั้งค่าของ implementation แยกต่างหาก
+MVP ส่ง JD ที่ผ่าน cleaning ให้ LLM อ่านโดยตรง คำว่า candidate ในเอกสารนี้หมายถึงชื่อ canonical ที่อาจตรงกับ `raw_skill_name` หลัง extraction ไม่ใช่รายชื่อที่หาใน JD ก่อนเรียก LLM
 
 ## 3. Per-job extraction contract
 
@@ -311,7 +311,7 @@ weighted_demand_score = SUM(importance_weight) / total_jobs
 MVP ของ skill extraction:
 
 - รับ JD ที่ผ่าน cleaning แล้ว และ extract ทีละ job
-- ใช้ NLP เตรียมข้อความ/หา candidates ร่วมกับ LLM วิเคราะห์ context
+- ใช้ LLM วิเคราะห์บริบทจาก JD ที่ผ่าน cleaning แล้วโดยตรง
 - คืน raw skill, requirement type, proficiency เมื่อมีหลักฐาน และ evidence
 - ตรวจ schema/evidence, normalize ด้วย canonical/alias match และคำนวณ weight/confidence ด้วย rule
 - เก็บสถานะ completed/failed และไม่ทิ้งผลที่ confidence ต่ำโดยอัตโนมัติ
