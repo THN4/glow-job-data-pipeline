@@ -1,0 +1,34 @@
+[
+  {
+    "name": "required_and_preferred",
+    "job_title": "Data Engineer",
+    "job_description": "Advanced Python skills are required. SQL is required. Experience with Apache Airflow is a plus.",
+    "expected": [
+      {"skill": "Python", "requirement_type": "required", "proficiency_level": "advanced"},
+      {"skill": "SQL", "requirement_type": "required", "proficiency_level": "unknown"},
+      {"skill": "Apache Airflow", "requirement_type": "preferred", "proficiency_level": "unknown"}
+    ],
+    "forbidden": []
+  },
+  {
+    "name": "negated_skill",
+    "job_title": "Backend Engineer",
+    "job_description": "Working knowledge of PostgreSQL is required. We do not use MongoDB. Docker knowledge is nice to have.",
+    "expected": [
+      {"skill": "PostgreSQL", "requirement_type": "required", "proficiency_level": "intermediate"},
+      {"skill": "Docker", "requirement_type": "preferred", "proficiency_level": "unknown"}
+    ],
+    "forbidden": ["MongoDB"]
+  },
+  {
+    "name": "optional_and_unknown",
+    "job_title": "Platform Engineer",
+    "job_description": "Technologies: Linux. Knowledge of Terraform is optional. Basic Git skills are required.",
+    "expected": [
+      {"skill": "Linux", "requirement_type": "unknown", "proficiency_level": "unknown"},
+      {"skill": "Terraform", "requirement_type": "optional", "proficiency_level": "unknown"},
+      {"skill": "Git", "requirement_type": "required", "proficiency_level": "beginner"}
+    ],
+    "forbidden": []
+  }
+]
