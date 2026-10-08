@@ -98,9 +98,8 @@ def _job_errors(
                 "job_posted_at",
             )
         )
-        if not has_date_value:
-            errors.append("missing posted date")
-        else:
+        # No date is a known data gap, not a reason to discard the posting.
+        if has_date_value:
             errors.append("invalid posted date")
     else:
         try:

@@ -168,6 +168,8 @@ Table market.job_postings {
   publisher text [note: 'Publisher reported by the provider, distinct from provider']
   source_url text
   posted_at timestamptz
+  posted_at_status text [not null, default: 'unknown', note: 'exact, estimated from relative text, unknown when no usable date is supplied, or unclassified for rows migrated from older versions']
+  first_seen_at timestamptz [not null, default: `now()`, note: 'Earliest time a raw JSearch result showed this job; retained on later upserts']
   skill_extraction_completed boolean [not null, default: false, note: 'Completed skill extraction, including an empty skills list']
   collected_at timestamptz [not null, default: `now()`]
   created_at timestamptz [not null, default: `now()`]
@@ -222,6 +224,7 @@ Table market.career_skill_stats {
   skill_id bigint [not null]
   analysis_start_date date [not null]
   analysis_end_date date [not null]
+  analysis_date_basis text [not null, default: 'posted_at', note: 'posted_at uses provider publication date; first_seen_at uses the pipeline discovery date']
   demand_count integer [not null]
   total_jobs integer [not null]
   demand_percentage numeric(5, 2) [not null]
@@ -236,7 +239,7 @@ Table market.career_skill_stats {
   last_updated timestamptz [not null, default: `now()`]
 
   indexes {
-    (career_profile_id, skill_id, analysis_start_date, analysis_end_date) [pk]
+    (career_profile_id, skill_id, analysis_start_date, analysis_end_date, analysis_date_basis) [pk]
   }
 }
 

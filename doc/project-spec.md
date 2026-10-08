@@ -368,6 +368,7 @@ Minimum requirements:
 - Company information exists when available
 - Job belongs to the selected country scope
 - Job data can be identified with a stable key or combination of fields
+- A missing publication date is recorded as unknown rather than making an otherwise usable job invalid
 
 Invalid records should not enter the final analytical dataset.
 
@@ -633,11 +634,21 @@ publisher
 source_url
 
 posted_at
+posted_at_status
+first_seen_at
 collected_at
 
 created_at
 updated_at
 ```
+
+`posted_at` records the provider's publication date when available; `posted_at_status`
+marks it as exact, estimated, unknown, or unclassified for older rows. `first_seen_at`
+records the earliest collection time from raw query metadata and stays fixed when a
+later run finds the same provider job again. Career skill statistics can use either
+publication time or first-seen time as their date basis. First-seen trends describe
+when this pipeline discovered jobs; they cannot recreate earlier market history that
+was never collected.
 
 Search provenance is stored separately in `market.job_search_matches`, because
 the same posting can be returned by more than one query or ingestion run.
@@ -904,6 +915,7 @@ preferred_count
 
 analysis_start_date
 analysis_end_date
+analysis_date_basis
 
 last_updated
 ```

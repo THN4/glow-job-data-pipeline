@@ -16,8 +16,8 @@ def test_replay_runs_stages_in_order_with_same_run_id(monkeypatch):
         calls.append(("load", run_id))
         return {"postings_loaded": 1}
 
-    def aggregate(start, end):
-        calls.append(("aggregate", (start, end)))
+    def aggregate(start, end, *, date_basis):
+        calls.append(("aggregate", (start, end, date_basis)))
         return {"skill_stats": 2}
 
     monkeypatch.setattr("src.pipeline.process_jobs", process_jobs)
@@ -36,7 +36,7 @@ def test_replay_runs_stages_in_order_with_same_run_id(monkeypatch):
     assert calls[0][1]["extract_skills"] is True
     assert calls[0][1]["skill_limit"] == 1
     assert calls[1][1] == "saved-run"
-    assert calls[2][1] == (start, end)
+    assert calls[2][1] == (start, end, "posted_at")
     assert result == {
         "run_id": "saved-run",
         "processed_jobs": 1,
@@ -72,7 +72,9 @@ def test_live_run_passes_generated_id_to_processing(monkeypatch):
 
     monkeypatch.setattr("src.pipeline.process_jobs", process_jobs)
     monkeypatch.setattr("src.pipeline.load_job_skills_from_run", lambda _id: {})
-    monkeypatch.setattr("src.pipeline.refresh_career_skill_stats", lambda *_: {})
+    monkeypatch.setattr(
+        "src.pipeline.refresh_career_skill_stats", lambda *_args, **_kwargs: {}
+    )
 
     result = run_pipeline(
         live=True, start_date=date(2026, 9, 1), end_date=date(2026, 9, 30)
@@ -93,6 +95,30 @@ def test_invalid_window_stops_before_processing(monkeypatch):
         )
 
 
+def test_first_seen_date_basis_is_passed_to_aggregation(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "src.pipeline.process_jobs",
+        lambda **_kwargs: [{"extraction_status": "completed"}],
+    )
+    monkeypatch.setattr("src.pipeline.load_job_skills_from_run", lambda _id: {})
+
+    def aggregate(_start, _end, *, date_basis):
+        captured["date_basis"] = date_basis
+        return {}
+
+    monkeypatch.setattr("src.pipeline.refresh_career_skill_stats", aggregate)
+
+    run_pipeline(
+        replay_run_id="saved-run",
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 9, 30),
+        date_basis="first_seen_at",
+    )
+
+    assert captured["date_basis"] == "first_seen_at"
+
+
 def test_replay_query_count_is_forwarded_to_processing(monkeypatch):
     captured = {}
 
@@ -102,7 +128,9 @@ def test_replay_query_count_is_forwarded_to_processing(monkeypatch):
 
     monkeypatch.setattr("src.pipeline.process_jobs", process_jobs)
     monkeypatch.setattr("src.pipeline.load_job_skills_from_run", lambda _id: {})
-    monkeypatch.setattr("src.pipeline.refresh_career_skill_stats", lambda *_: {})
+    monkeypatch.setattr(
+        "src.pipeline.refresh_career_skill_stats", lambda *_args, **_kwargs: {}
+    )
 
     run_pipeline(
         replay_run_id="older-run",

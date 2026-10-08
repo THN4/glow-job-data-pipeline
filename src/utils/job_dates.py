@@ -52,26 +52,30 @@ def _parse_relative_date(value: object, reference_time: datetime) -> datetime | 
         return reference_time - timedelta(days=1)
 
     english_match = re.fullmatch(
-        r"(\d+)\s+(day|week|month|year)s?\s+ago", text
+        r"(\d+)\s+(hour|day|week|month|year)s?\s+ago", text
     )
-    thai_match = re.fullmatch(r"(\d+)\s*(วัน|สัปดาห์|เดือน|ปี)ที่ผ่านมา", text)
+    thai_match = re.fullmatch(
+        r"(\d+)\s*(ชั่วโมง|วัน|สัปดาห์|เดือน|ปี)ที่ผ่านมา", text
+    )
     match = english_match or thai_match
     if match is None:
         return None
 
     amount = int(match.group(1))
     unit = match.group(2)
-    days_per_unit = {
-        "day": 1,
-        "week": 7,
-        "month": 30,
-        "year": 365,
-        "วัน": 1,
-        "สัปดาห์": 7,
-        "เดือน": 30,
-        "ปี": 365,
+    duration_per_unit = {
+        "hour": timedelta(hours=1),
+        "day": timedelta(days=1),
+        "week": timedelta(weeks=1),
+        "month": timedelta(days=30),
+        "year": timedelta(days=365),
+        "ชั่วโมง": timedelta(hours=1),
+        "วัน": timedelta(days=1),
+        "สัปดาห์": timedelta(weeks=1),
+        "เดือน": timedelta(days=30),
+        "ปี": timedelta(days=365),
     }
-    return reference_time - timedelta(days=amount * days_per_unit[unit])
+    return reference_time - amount * duration_per_unit[unit]
 
 
 def parse_job_posted_at(

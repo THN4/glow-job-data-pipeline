@@ -29,6 +29,8 @@ class JobPostingRepository:
         publisher: str | None = None,
         source_url: str | None = None,
         posted_at: datetime | None = None,
+        posted_at_status: str = "unknown",
+        first_seen_at: datetime | None = None,
     ) -> int:
         """Insert a posting or refresh its fields when the provider ID already exists."""
         row = self._connection.execute(
@@ -37,10 +39,11 @@ class JobPostingRepository:
                 provider_job_id, company_id, career_profile_id, job_title,
                 normalized_job_title, job_description, location, city, state,
                 country, employment_type, provider, publisher, source_url,
-                posted_at
+                posted_at, posted_at_status, first_seen_at
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, COALESCE(%s, now())
             )
             ON CONFLICT (provider, provider_job_id) DO UPDATE SET
                 company_id = COALESCE(EXCLUDED.company_id, market.job_postings.company_id),
@@ -65,6 +68,17 @@ class JobPostingRepository:
                 publisher = COALESCE(EXCLUDED.publisher, market.job_postings.publisher),
                 source_url = COALESCE(EXCLUDED.source_url, market.job_postings.source_url),
                 posted_at = COALESCE(EXCLUDED.posted_at, market.job_postings.posted_at),
+                posted_at_status = CASE
+                    WHEN EXCLUDED.posted_at IS NOT NULL
+                        THEN EXCLUDED.posted_at_status
+                    WHEN market.job_postings.posted_at IS NOT NULL
+                        THEN market.job_postings.posted_at_status
+                    ELSE EXCLUDED.posted_at_status
+                END,
+                first_seen_at = LEAST(
+                    market.job_postings.first_seen_at,
+                    EXCLUDED.first_seen_at
+                ),
                 collected_at = now(),
                 updated_at = now()
             RETURNING job_id
@@ -85,6 +99,8 @@ class JobPostingRepository:
                 publisher,
                 source_url,
                 posted_at,
+                posted_at_status,
+                first_seen_at,
             ),
         ).fetchone()
         return row[0]

@@ -159,6 +159,9 @@ def clean_jobs(
         )
         job["posted_at"] = posted_at
         job["posted_at_is_estimated"] = is_estimated
+        job["posted_at_status"] = (
+            "unknown" if posted_at is None else "estimated" if is_estimated else "exact"
+        )
 
         errors: list[str] = []
         if not isinstance(job.get("job_title"), str) or not job["job_title"]:
@@ -171,9 +174,6 @@ def clean_jobs(
                 "job description is shorter than "
                 f"{minimum_length} characters after cleaning"
             )
-
-        if posted_at is None:
-            errors.append("posted date could not be normalized")
 
         cleaned_entry = {**entry, "job": job}
         if errors:
