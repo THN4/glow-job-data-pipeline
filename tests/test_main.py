@@ -97,6 +97,7 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
         ]
 
     monkeypatch.setattr("src.main.extract_skills_for_jobs", fake_extract_skills)
+    monkeypatch.setattr("src.main.load_skill_catalog", lambda: {})
     waits = []
     monkeypatch.setattr("src.main.time.sleep", waits.append)
     skill_dir = tmp_path / "skill-results"
@@ -114,6 +115,7 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     assert len(skill_jobs) == 2
     assert captured_jobs[0]["job"]["career_slug"] == "data_engineer"
     assert skill_jobs[0]["extraction_status"] == "completed"
+    assert skill_jobs[0]["normalized_skills"] == []
     assert skill_jobs[0]["metadata"]["run_id"] == run_id
     assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == 2
 
