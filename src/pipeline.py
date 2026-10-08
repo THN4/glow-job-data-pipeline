@@ -18,6 +18,7 @@ def run_pipeline(
     live: bool = False,
     start_date: date,
     end_date: date,
+    date_basis: str = "posted_at",
     skill_limit: int | None = None,
     skill_request_interval: float = 10.0,
 ) -> dict[str, object]:
@@ -36,6 +37,8 @@ def run_pipeline(
         raise ValueError("replay_query_count must be positive and requires replay_run_id")
     if start_date > end_date:
         raise ValueError("start_date must be on or before end_date")
+    if date_basis not in {"posted_at", "first_seen_at"}:
+        raise ValueError("date_basis must be 'posted_at' or 'first_seen_at'")
     if skill_limit is not None and (
         isinstance(skill_limit, bool) or skill_limit < 1
     ):
@@ -65,8 +68,14 @@ def run_pipeline(
 
     loaded = load_job_skills_from_run(run_id)
     logger.info("Job skills loaded: run_id=%s, result=%s", run_id, loaded)
-    aggregated = refresh_career_skill_stats(start_date, end_date)
-    logger.info("Career skill stats refreshed: result=%s", aggregated)
+    aggregated = refresh_career_skill_stats(
+        start_date, end_date, date_basis=date_basis
+    )
+    logger.info(
+        "Career skill stats refreshed: date_basis=%s, result=%s",
+        date_basis,
+        aggregated,
+    )
     return {
         "run_id": run_id,
         "processed_jobs": len(jobs),

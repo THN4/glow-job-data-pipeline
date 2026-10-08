@@ -2,6 +2,8 @@
 
 This repository collects recent Thailand job postings and prepares structured job-market data for Glow-Job. The intended flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, career-level aggregation, and PostgreSQL loading. User-specific features belong to other services.
 
+Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
+
 The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Gemini can be enabled explicitly after career mapping; extracted names are then matched against the reviewed PostgreSQL skill catalog. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The first PostgreSQL migration covers market ingestion, and the second adds the skill catalog; job-skill and aggregation tables will be added in later stages. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
 
 ## Local setup
@@ -73,22 +75,22 @@ Replace the run ID with a file name under `data/processed/skill_extraction/` (wi
 
 ## Aggregate career skill demand
 
-After migration `004_create_career_skill_stats.sql`, load the saved skill run again so previously loaded postings receive `skill_extraction_completed=true`. Then refresh a posting-date window:
+After applying migrations through `005_add_posted_at_status.sql`, load the saved skill run again so previously loaded postings receive `skill_extraction_completed=true`. Then refresh a date window using the desired date basis:
 
 ```shell
 python -m scripts.migrate
 python -m scripts.load_job_skills 20260927T172453146903Z
-python -m scripts.aggregate_career_skills 2026-09-01 2026-09-30
+python -m scripts.aggregate_career_skills 2026-09-01 2026-09-30 --date-basis first_seen_at
 ```
 
-The dates are inclusive UTC `posted_at` dates. Only completed extractions with a nonempty JD and a known `posted_at` enter the denominator, including jobs with no matched skills. The command replaces statistics for that window, so rerunning it does not duplicate rows; if no jobs qualify, that window has no statistics. It reports the number of eligible postings, career profiles, and saved skill statistics. `importance_tier` stays `unknown` until a reviewed threshold is defined. A small checkpoint produces a small sample; do not treat its percentages as market-wide estimates.
+The dates are inclusive UTC dates. By default, the command uses `posted_at`, so jobs without a known publication date are excluded. Pass `--date-basis first_seen_at` to group jobs by when this pipeline first collected them; this includes undated postings and keeps first-seen time fixed across later runs. The command replaces statistics for that window and basis, so rerunning it does not duplicate rows. It reports eligible postings, career profiles, and skill statistics. `importance_tier` stays `unknown` until a reviewed threshold is defined. A small sample produces uncertain percentages; first-seen trends become useful after repeated collections and cannot recreate historical observations that were never captured.
 
 ## Run the local pipeline in one command
 
 After running migrations and seeding careers and skills, replay a saved raw run, load its completed skills, and refresh one UTC posting-date window:
 
 ```shell
-python -m scripts.run_pipeline --replay-run-id 20260927T172453146903Z --replay-query-count 6 --start-date 2026-09-01 --end-date 2026-09-30 --skill-limit 2
+python -m scripts.run_pipeline --replay-run-id 20260927T172453146903Z --replay-query-count 6 --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at --skill-limit 2
 ```
 
 The example's first two jobs already have completed skill results in the checkpoint, so it makes no JSearch or Gemini request. That older raw run contains six queries; `--replay-query-count 6` preserves its completeness check after new careers are added to the configuration. New runs use the current query count automatically. Replay always skips JSearch, but it **does call Gemini** for jobs beyond the completed checkpoint. Omit `--skill-limit` to process the full raw run; a limit selects the first N career-mapped jobs overall, not N jobs per career. A limit smaller than an existing checkpoint is rejected to protect saved progress.
@@ -96,7 +98,7 @@ The example's first two jobs already have completed skill results in the checkpo
 To start a new run with JSearch and Gemini, use `--live` instead of `--replay-run-id`:
 
 ```shell
-python -m scripts.run_pipeline --live --start-date 2026-09-01 --end-date 2026-09-30
+python -m scripts.run_pipeline --live --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at
 ```
 
 The command prints the run ID and per-stage counts. If skill extraction is incomplete, it stops before loading and aggregation; successful jobs remain in the checkpoint so you can resume with `--replay-run-id <run_id>`. The aggregation window includes every eligible posting currently loaded in the database, including postings from earlier runs. Run `python -m scripts.seed_reference_data` after adding careers and before loading their postings. The current six-career configuration makes 14 JSearch search queries per live run, requesting up to two pages per query, followed by Gemini requests for jobs that pass validation. Scheduling, cloud storage, and monitoring are separate later tasks.

@@ -30,6 +30,12 @@ def main() -> None:
     )
     parser.add_argument("--start-date", type=_date, required=True)
     parser.add_argument("--end-date", type=_date, required=True)
+    parser.add_argument(
+        "--date-basis",
+        choices=("posted_at", "first_seen_at"),
+        default="posted_at",
+        help="Aggregate by provider publication date or the pipeline's first-seen date",
+    )
     parser.add_argument("--skill-limit", type=int)
     parser.add_argument("--skill-request-interval", type=float, default=10.0)
     arguments = parser.parse_args()
@@ -39,6 +45,7 @@ def main() -> None:
         live=arguments.live,
         start_date=arguments.start_date,
         end_date=arguments.end_date,
+        date_basis=arguments.date_basis,
         skill_limit=arguments.skill_limit,
         skill_request_interval=arguments.skill_request_interval,
     )

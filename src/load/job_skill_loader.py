@@ -1,7 +1,7 @@
 """Load completed skill checkpoints into job postings and job-skill rows."""
 
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -46,6 +46,41 @@ def _posted_at(value: object) -> datetime | None:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("posted_at must include a timezone")
     return parsed
+
+
+def _posted_at_status(job: dict[str, object]) -> str:
+    """Return the explicit date quality label, supporting older checkpoints."""
+    status = job.get("posted_at_status")
+    if isinstance(status, str) and status in {"exact", "estimated", "unknown"}:
+        return status
+    if job.get("posted_at") is None:
+        return "unknown"
+    return "estimated" if job.get("posted_at_is_estimated") is True else "exact"
+
+
+def _first_seen_at(entry: dict[str, object]) -> datetime | None:
+    """Use the earliest raw collection timestamp for this deduplicated posting."""
+    metadata_entries = []
+    metadata = entry.get("metadata")
+    if isinstance(metadata, dict):
+        metadata_entries.append(metadata)
+    matches = entry.get("matches")
+    if isinstance(matches, list):
+        metadata_entries.extend(match for match in matches if isinstance(match, dict))
+
+    timestamps = []
+    for metadata in metadata_entries:
+        value = metadata.get("collected_at")
+        if not isinstance(value, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            continue
+        timestamps.append(parsed.astimezone(timezone.utc))
+    return min(timestamps) if timestamps else None
 
 
 def load_job_skills_from_run(
@@ -125,6 +160,8 @@ def load_job_skills_from_run(
                     publisher=job.get("job_publisher"),
                     source_url=job.get("job_apply_link"),
                     posted_at=_posted_at(job.get("posted_at")),
+                    posted_at_status=_posted_at_status(job),
+                    first_seen_at=_first_seen_at(entry),
                 )
                 normalized = entry["normalized_skills"]
                 job_description = job.get("job_description")

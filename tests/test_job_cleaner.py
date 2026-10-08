@@ -55,6 +55,7 @@ def test_clean_jobs_cleans_text_and_keeps_metadata_and_source_unchanged() -> Non
         2026, 10, 1, 12, tzinfo=timezone.utc
     )
     assert cleaned_job["posted_at_is_estimated"] is False
+    assert cleaned_job["posted_at_status"] == "exact"
     assert cleaned_jobs[0]["metadata"] == entry["metadata"]
     assert source_job["job_title"] == "  Data   Engineer  "
     assert source_job["job_description"].startswith("<p>")
@@ -92,6 +93,7 @@ def test_relative_posted_text_becomes_estimated_datetime() -> None:
         2026, 9, 23, 12, tzinfo=timezone.utc
     )
     assert cleaned_jobs[0]["job"]["posted_at_is_estimated"] is True
+    assert cleaned_jobs[0]["job"]["posted_at_status"] == "estimated"
     assert cleaned_jobs[0]["job"]["job_posted_at"] == "10 วันที่ผ่านมา"
 
 
@@ -157,3 +159,61 @@ def test_relative_posting_older_than_configured_window_fails_validation() -> Non
     assert invalid_jobs[0]["errors"] == [
         f"posted date is older than {settings.validation.time_window_days} days"
     ]
+
+
+def test_job_without_posted_date_is_retained_and_marked_unknown() -> None:
+    settings = load_settings()
+    raw_results = [
+        {
+            "collected_at": "2026-10-03T12:00:00+00:00",
+            "response": {
+                "data": [
+                    _valid_job(
+                        job_posted_at_datetime_utc=None,
+                        job_posted_at_timestamp=None,
+                        job_posted_at=None,
+                    )
+                ]
+            },
+        }
+    ]
+
+    valid_jobs, invalid_jobs = validate_jobs(raw_results, settings)
+    cleaned_jobs, rejected_jobs = clean_jobs(valid_jobs, settings)
+
+    assert invalid_jobs == []
+    assert rejected_jobs == []
+    assert len(cleaned_jobs) == 1
+    assert cleaned_jobs[0]["job"]["posted_at"] is None
+    assert cleaned_jobs[0]["job"]["posted_at_is_estimated"] is False
+    assert cleaned_jobs[0]["job"]["posted_at_status"] == "unknown"
+
+
+def test_relative_hour_posted_date_is_estimated() -> None:
+    settings = load_settings()
+    collected_at = "2026-10-03T12:00:00+00:00"
+    raw_results = [
+        {
+            "collected_at": collected_at,
+            "response": {
+                "data": [
+                    _valid_job(
+                        job_posted_at_datetime_utc=None,
+                        job_posted_at_timestamp=None,
+                        job_posted_at="10 ชั่วโมงที่ผ่านมา",
+                    )
+                ]
+            },
+        }
+    ]
+
+    valid_jobs, invalid_jobs = validate_jobs(raw_results, settings)
+    cleaned_jobs, rejected_jobs = clean_jobs(valid_jobs, settings)
+
+    assert invalid_jobs == []
+    assert rejected_jobs == []
+    assert cleaned_jobs[0]["job"]["posted_at"] == datetime(
+        2026, 10, 3, 2, tzinfo=timezone.utc
+    )
+    assert cleaned_jobs[0]["job"]["posted_at_is_estimated"] is True
+    assert cleaned_jobs[0]["job"]["posted_at_status"] == "estimated"
