@@ -33,6 +33,22 @@ def test_map_careers_maps_backend_developer_to_backend_engineer() -> None:
     assert mapped["job"]["career_slug"] == "backend_engineer"
 
 
+def test_new_careers_map_distinct_title_aliases() -> None:
+    titles = {
+        "Senior GenAI Engineer": "ai_engineer",
+        "Junior Data Scientist": "data_scientist",
+        "Business Intelligence Analyst": "data_analyst",
+        "Senior Analytics Engineer": "analytics_engineer",
+    }
+
+    for title, expected_slug in titles.items():
+        mapped = map_careers(
+            [{"job": {"job_title": title}}], load_settings().careers
+        )[0]
+        assert mapped["job"]["career_slug"] == expected_slug
+        assert mapped["job"]["career_mapping_status"] == "mapped"
+
+
 def test_map_careers_uses_single_query_career_as_fallback() -> None:
     entry = {
         "job": {"job_title": "Software Engineer"},

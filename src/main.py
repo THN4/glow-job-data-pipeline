@@ -25,6 +25,8 @@ from src.validation.job_validator import validate_jobs
 def main(
     *,
     replay_run_id: str | None = None,
+    replay_query_count: int | None = None,
+    new_run_id: str | None = None,
     extract_skills: bool = False,
     skill_limit: int | None = None,
     skill_request_interval: float = 10.0,
@@ -35,6 +37,14 @@ def main(
     ),
 ) -> list[dict[str, object]]:
     """Prepare job records and optionally extract their skills with Gemini."""
+    if replay_run_id is not None and new_run_id is not None:
+        raise ValueError("Choose either replay_run_id or new_run_id")
+    if replay_query_count is not None and (
+        replay_run_id is None
+        or isinstance(replay_query_count, bool)
+        or replay_query_count < 1
+    ):
+        raise ValueError("replay_query_count must be positive and requires replay_run_id")
     if skill_limit is not None:
         if not extract_skills or isinstance(skill_limit, bool) or skill_limit < 1:
             raise ValueError("skill_limit must be positive and requires extract_skills")
@@ -46,7 +56,7 @@ def main(
 
     if replay_run_id is not None:
         active_run_id = replay_run_id
-        expected_query_count = sum(
+        expected_query_count = replay_query_count or sum(
             len(career.queries) for career in settings.careers.values()
         )
         logger.info("Replaying raw data: run_id=%s", replay_run_id)
@@ -57,7 +67,9 @@ def main(
         )
         logger.info("Replay completed: %d query responses loaded", len(results))
     else:
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        run_id = new_run_id or datetime.now(timezone.utc).strftime(
+            "%Y%m%dT%H%M%S%fZ"
+        )
         active_run_id = run_id
         logger.info(
             "Starting job extraction: run_id=%s, country=%s, careers=%d",
@@ -159,6 +171,8 @@ def main(
         )
         if len(saved_jobs) > len(career_mapped_jobs):
             raise ValueError("Skill checkpoint contains more jobs than the raw run")
+        if skill_limit is not None and len(saved_jobs) > skill_limit:
+            raise ValueError("skill_limit is smaller than the saved skill checkpoint")
 
         identity_fields = ("job_id", "job_url", "job_title", "job_description")
         for index, saved_entry in enumerate(saved_jobs):
@@ -243,6 +257,11 @@ if __name__ == "__main__":
         help="Load a previously saved raw run instead of calling JSearch.",
     )
     parser.add_argument(
+        "--replay-query-count",
+        type=int,
+        help="Expected query count for a raw run saved under an older careers config.",
+    )
+    parser.add_argument(
         "--extract-skills",
         action="store_true",
         help="Call Gemini once for each unique job after career mapping.",
@@ -261,6 +280,7 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     result = main(
         replay_run_id=arguments.replay_run_id,
+        replay_query_count=arguments.replay_query_count,
         extract_skills=arguments.extract_skills,
         skill_limit=arguments.skill_limit,
         skill_request_interval=arguments.skill_request_interval,

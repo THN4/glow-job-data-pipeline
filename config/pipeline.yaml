@@ -1,10 +1,10 @@
 search:
   country: TH
-  max_pages: 1
+  max_pages: 2
   date_posted: all
 
 validation:
-  time_window_days: 90
+  time_window_days: 184
   minimum_description_length: 100
 
 jsearch:
