@@ -2,7 +2,7 @@
 
 ## 1. Purpose and scope
 
-เอกสารนี้กำหนดผลลัพธ์และกติกาของการดึง skill จาก Job Description (JD) หนึ่งประกาศ โดยต้องเก็บบริบทที่บอกว่า skill นั้นจำเป็นแค่ไหน ระดับที่ประกาศระบุ หลักฐานจากข้อความ และความมั่นใจของระบบ
+เอกสารนี้เป็น **spec หลักฉบับเดียว** สำหรับการดึง skill จาก Job Description (JD) หนึ่งประกาศ โดยเก็บบริบทที่บอกว่า skill นั้นจำเป็นแค่ไหน ระดับที่ประกาศระบุ หลักฐานจากข้อความ และความมั่นใจของระบบ กฎคะแนนในเอกสารเป็น heuristic เริ่มต้นของโปรเจกต์ ไม่ใช่ความน่าจะเป็นที่ผ่านการ calibrate แล้ว
 
 งานนี้จบที่ข้อมูล skill ระดับประกาศ (`market.job_skills`) การรวมสถิติหลายประกาศ (`market.career_skill_stats`) เป็นขั้นต่อไป ไม่ใช่ผลลัพธ์ที่ LLM สร้างจาก JD รายการเดียว
 
@@ -75,7 +75,7 @@ MVP ส่ง JD ที่ผ่าน cleaning ให้ LLM อ่านโด
       "skill_confidence": 0.95,
       "requirement_confidence": 1.0,
       "proficiency_confidence": 0.95,
-      "overall_confidence": 0.97,
+      "overall_confidence": 0.968,
       "evidence_text": "Experience using Postgres in production is required.",
       "extraction_method": "hybrid"
     }
@@ -84,6 +84,8 @@ MVP ส่ง JD ที่ผ่าน cleaning ให้ LLM อ่านโด
 ```
 
 `skill_id` มาจากการค้น canonical skill ในฐานข้อมูล ไม่ให้ LLM สร้าง ID เอง `skill_name` เป็นชื่อ canonical ที่ join จาก `core.skills`; `raw_skill_name` เก็บรูปคำที่พบใน JD
+
+ตัวอย่าง `job_id` และ `skill_id` เป็นเลขสมมติ `overall_confidence = 0.968` มาจาก `0.40(0.95) + 0.35(1.00) + 0.25(0.95) = 0.9675` แล้วปัดเป็นทศนิยมสามตำแหน่ง
 
 `extraction_status` ต้องแยก `completed` ที่ไม่พบ skill (`skills: []`) ออกจาก `failed` ที่วิเคราะห์ไม่สำเร็จ งานที่ failed ห้ามถูกนับภายหลังว่าเป็นประกาศที่ไม่มี skill
 
@@ -106,6 +108,8 @@ MVP ส่ง JD ที่ผ่าน cleaning ให้ LLM อ่านโด
 
 สำหรับ MVP ให้จัด `plus`, `bonus` และ `nice to have` เป็น `preferred` เพื่อให้กฎไม่ซ้อนกัน ส่วนคำว่า `optional` ใช้เมื่อประกาศระบุชัด หรือบริบทบอกว่าเป็นทักษะเสริมที่ไม่ใช่ข้อได้เปรียบในการคัดเลือก หากไม่มี cue ให้ใช้ `unknown`
 
+`requirement_type` ตอบว่า *จำเป็นต้องมี skill หรือไม่* ส่วน `proficiency_level` ตอบว่า *หากมี ต้องเก่งระดับใด* จึงเกิดกรณี `required + beginner` หรือ `preferred + advanced` ได้ ทั้งสอง field และคะแนน confidence ของแต่ละ field ต้องแยกกัน
+
 ถ้าข้อความปฏิเสธการใช้ skill เช่น `we do not use Java` ให้ไม่นับเป็น skill ที่ต้องการ ถ้าเขียนว่า `Java is not required` แต่ยังไม่ได้ระบุว่าเป็นข้อได้เปรียบ ให้จัดเป็น `optional` เฉพาะเมื่อบริบทสนับสนุน มิฉะนั้นใช้ `unknown`
 
 ### `proficiency_level`
@@ -125,16 +129,16 @@ beginner | intermediate | advanced | expert | unknown
 | ระบุระดับตรง ๆ ว่า `intermediate` | `intermediate` | 0.95 |
 | `working knowledge`, `practical experience` | `intermediate` | 0.85 |
 | ระบุระดับตรง ๆ ว่า `advanced` | `advanced` | 0.95 |
-| `strong`, `solid`, `proficient` | `advanced` | 0.80 |
+| `strong`, `solid` ที่ขยายชื่อ skill โดยตรง | `advanced` | 0.80 |
 | ระบุระดับตรง ๆ ว่า `expert` | `expert` | 0.98 |
 | `deep expertise`, `specialist` | `expert` | 0.90 |
 | ไม่มี cue ระดับที่ชัดเจน | `unknown` | 0.95 |
 
-ถ้า JD ระบุชื่อระดับตรง ๆ เช่น `advanced Python skills` จะได้ confidence สูงกว่าการอนุมานจากคำกว้าง ๆ เช่น `strong Python skills` ตารางนี้เป็น heuristic เริ่มต้น ไม่ใช่มาตรฐานสากล จึงต้องเก็บ evidence และทบทวนตัวอย่างจริงก่อนใช้ตัดสินอัตโนมัติ จำนวนปีประสบการณ์เพียงอย่างเดียวไม่แปลเป็นระดับแบบตายตัว เช่น `3 years` ไม่ได้แปลว่า `advanced` เสมอไป
+`proficient` เพียงคำเดียว, `highly proficient` และ `solid experience` อาจใช้ต่างความหมายตามบริบท MVP จึงไม่ให้คะแนนระดับอัตโนมัติจากคำเหล่านี้จนกว่าจะมีตัวอย่างที่คนตรวจแล้ว ถ้า JD ระบุชื่อระดับตรง ๆ เช่น `advanced Python skills` จะได้ confidence สูงกว่าการอนุมานจาก `strong Python skills` ต้องเก็บ evidence และทบทวนตัวอย่างจริงก่อนใช้ตัดสินอัตโนมัติ จำนวนปีประสบการณ์เพียงอย่างเดียวไม่แปลเป็นระดับแบบตายตัว เช่น `3 years` ไม่ได้แปลว่า `advanced` เสมอไป
 
 ### `evidence_text`
 
-เก็บข้อความจริงจาก JD ที่รองรับการระบุ skill และ context ห้ามให้ LLM เขียนประโยคหลักฐานขึ้นใหม่ หากหา span จากต้นฉบับไม่พบ ให้ผลตรวจไม่ผ่านหรือส่ง review
+เก็บข้อความจริงจาก JD ที่รองรับการระบุ skill และ context ห้ามให้ LLM เขียนประโยคหลักฐานขึ้นใหม่ หากหา span จากต้นฉบับไม่พบ ให้ผลตรวจไม่ผ่านหรือส่ง review การใช้ section header หรือข้อความอีกตำแหน่งเป็นหลักฐานต้องย้อนหาได้จาก JD เต็ม; `evidence_text` หนึ่งช่วงอาจไม่พอสำหรับกรณี conflict จึงไม่ควรอ้างคะแนนสูงจากช่วงเดียว
 
 ### `extraction_method`
 
@@ -144,7 +148,7 @@ beginner | intermediate | advanced | expert | unknown
 llm | rule | hybrid | manual
 ```
 
-ใช้ `hybrid` เมื่อมีทั้ง LLM และกฎ deterministic ใน record นั้น ไม่ใช้ `llm_rule_hybrid` เป็นอีกค่าหนึ่ง เพื่อป้องกันค่า method หลายชื่อที่มีความหมายเดียวกัน
+ใช้ `hybrid` เมื่อมีทั้ง LLM และกฎ deterministic ใน record นั้น ไม่ใช้ `llm_rule_hybrid` เป็นอีกค่าหนึ่ง เพื่อป้องกันค่า method หลายชื่อที่มีความหมายเดียวกัน โค้ดปัจจุบันยังเก็บ `llm` สำหรับผล extract แล้ว normalize; หากเปลี่ยนเป็น `hybrid` ต้องอัปเดตตัวโหลดและทดสอบให้ตรงกัน
 
 ## 5. LLM output and validation
 
@@ -221,48 +225,86 @@ beginner = 0.50 | unknown = 0.60
 
 ตัวอย่าง `required + advanced` ได้ `0.7(1.00) + 0.3(0.90) = 0.97` ส่วน `preferred + beginner` ได้ `0.57` ค่าเหล่านี้เป็นนโยบายเริ่มต้นของโปรเจกต์ ควรเก็บเป็น versioned rule และทบทวนหลังเห็นผลกับข้อมูลจริง
 
-## 9. Confidence
+## 9. Confidence scoring
 
-Confidence เป็นคะแนน heuristic ที่บอกความชัดเจนของการจัดประเภท ไม่ใช่ความน่าจะเป็นที่รับประกันความถูกต้อง และไม่ใช่ความสำคัญของ skill
-
-แยกเป็น:
+Confidence เป็น heuristic ว่า **การระบุค่าแต่ละ field มีหลักฐานชัดแค่ไหน** ไม่ใช่ความน่าจะเป็นที่รับประกันความถูกต้อง และไม่ใช่ `importance_weight` (ความสำคัญของ skill ต่องาน) งานหนึ่งอาจมี `importance_weight` สูง แต่ classification ยังไม่แน่นอน ต้องเก็บ confidence ทั้งสี่ค่าแยกกัน:
 
 | Field | ตรวจอะไร |
 |---|---|
-| `skill_confidence` | ระบุ skill จากข้อความได้ตรงแค่ไหน |
-| `requirement_confidence` | จัด required/preferred/optional/unknown ได้ชัดแค่ไหน |
-| `proficiency_confidence` | จัดระดับ proficiency ได้ชัดแค่ไหน รวมถึงมั่นใจว่าเป็น `unknown` |
-| `overall_confidence` | คะแนนสรุปจากสาม field |
+| `skill_confidence` | ชื่อ canonical ที่จับคู่ตรงกับ skill ที่ JD กล่าวถึงจริงแค่ไหน |
+| `requirement_confidence` | จัด `required/preferred/optional/unknown` ชัดแค่ไหน |
+| `proficiency_confidence` | จัด `beginner/intermediate/advanced/expert/unknown` ชัดแค่ไหน |
+| `overall_confidence` | สรุปจากสามค่าข้างบนเมื่อมีครบ |
 
-คะแนนเริ่มต้นสำหรับ skill match:
+### 9.1 Skill confidence
 
-| วิธีพบ skill | Score เบื้องต้น |
+MVP ใช้ชื่อ canonical/alias ที่ยืนยันแล้วเท่านั้น หลังตรวจว่า `raw_skill_name` หรือรูปคำที่ยืนยันแล้วปรากฏใน evidence ที่อ้างกลับ JD ได้:
+
+| วิธีจับคู่ | `skill_confidence` |
 |---|---:|
 | exact canonical | 1.00 |
 | exact alias | 0.95 |
-| LLM inference ที่มีหลักฐานบริบทชัด | 0.60 |
 
-Fuzzy/embedding scores ยังไม่อยู่ใน MVP เพราะ fuzzy/embedding matching ถูกเลื่อนไประยะถัดไป คะแนนตารางทั้งหมดเป็นค่าเริ่มต้นที่ต้องเทียบกับตัวอย่างซึ่งคนตรวจแล้ว ไม่ใช่ค่าที่ calibrate แล้ว
+คะแนนนี้สะท้อนความชัดของ **การจับคู่ชื่อ** ไม่ใช่หลักฐานว่าการตีความ JD ทั้งหมดถูกต้อง ถ้า Gemini คืน `SQL` ทั้งที่ evidence พูดเพียง “relational database systems” การจับชื่อกับ catalog ได้ไม่ทำให้เป็น exact mention ใน JD ให้ส่ง review และอย่ายืนยัน `skill_id` จากการอนุมานนั้นโดยอัตโนมัติ Fuzzy, embedding และ semantic inference เป็นแนวทางต่อยอด ไม่ได้เปิดใช้ใน MVP
 
-คำนวณ:
+### 9.2 Requirement confidence
+
+สำหรับ cue ที่อยู่ในช่วงข้อความหลักฐานเดียวกับ skill และไม่ถูกปฏิเสธ ให้ใช้ `cue_strength` ต่อไปนี้ ค่า `requirement_type` ต้องตรงกับคอลัมน์ classification:
+
+| Cue ที่ชัดใน evidence | Classification | `cue_strength` |
+|---|---|---:|
+| `required`, `must have`, `mandatory`, `minimum requirement` | `required` | 1.00 |
+| `essential`, `need to have` | `required` | 0.95 |
+| `preferred`, `preferred qualification` | `preferred` | 1.00 |
+| `desirable` | `preferred` | 0.95 |
+| `advantageous`, `plus`, `bonus`, `nice to have` | `preferred` | 0.90 |
+| `would be beneficial`, `good to have` | `preferred` | 0.85 |
+| ระบุว่า `optional` ชัดเจน | `optional` | 1.00 |
+
+สำหรับ MVP ถ้า evidence ที่ครอบคลุมข้อความเกี่ยวกับ skill นั้นไม่มี cue และไม่มี section/ข้อความอื่นที่เปลี่ยนความหมาย ให้ `requirement_type=unknown` กับ `requirement_confidence=0.95` หมายถึงมั่นใจว่า **ไม่มีข้อมูลพอให้จัดประเภท** ไม่ได้หมายถึงมั่นใจน้อย ถ้า LLM ระบุ classification ไม่ตรงกับ cue หรือไม่มีหลักฐานรองรับ ให้ส่ง review และปล่อย confidence เป็น `NULL` จนกว่าจะตัดสินได้
+
+กฎคือ `requirement_confidence = cue_strength × context_consistency` สำหรับกรณีชัดเจนใน evidence เดียว MVP ให้ `context_consistency=1.00` เท่านั้น จึงได้ `Python is required → 1.00` และ `Kafka would be a plus → 0.90` กรณี ambiguity หรือข้อความขัดกันยังไม่มีวิธีให้ตัวคูณต่ำกว่า 1 ที่ตรวจซ้ำได้ จึง **ไม่เดาค่ากลางช่วง** ให้ใช้ `unknown` หรือส่ง review พร้อม `NULL` ตามหลักฐาน
+
+ตรวจ negation ก่อนจับ cue: `Kafka is not required` ไม่ใช่ `required`; `we do not use Java` ไม่ใช่ skill ที่ต้องการ เงื่อนไขเฉพาะกลุ่ม เช่น “required for the streaming team” ก็ไม่ใช่ global required โดยอัตโนมัติ หัวข้อ `Required Skills`/`Preferred Qualifications` อาจเป็นหลักฐานได้ แต่คะแนนจากหัวข้อใช้ต่อเมื่อระบบระบุตำแหน่ง skill และหัวข้อที่ครอบอยู่ได้จริง; ถ้าข้อความอยู่คนละส่วนหรือเกิด conflict ให้เก็บข้อเสนอเพื่อ review ไม่ใช้คะแนนจาก evidence ช่วงเดียวตัดสินแทนทั้ง JD
+
+### 9.3 Proficiency confidence
+
+ใช้ตาราง cue ในข้อ 4 เป็นค่าเริ่มต้นเมื่อ cue ขยาย skill นั้นโดยตรงและ level ที่ LLM คืนมาตรงกับกฎ เช่น `advanced Python → advanced, 0.95`, `strong Python skills → advanced, 0.80`, `basic SQL → beginner, 0.90` ถ้าไม่มี cue ระดับ และตรวจแล้วว่าไม่มีบริบทอื่นที่ระบุระดับ ให้ `unknown, 0.95` ได้ ความมั่นใจสูงใน `unknown` หมายถึงมั่นใจว่า JD **ไม่ได้ระบุระดับ** ไม่ได้หมายถึงรู้ระดับจริง
+
+ถ้า cue ไม่รองรับ level ที่คืนมา มีหลาย cue ขัดกัน หรืออ้างจากจำนวนปี/ชื่อตำแหน่งเพียงอย่างเดียว ให้ส่ง review และปล่อย confidence เป็น `NULL` แทนการเลือกคะแนนจากช่วงโดยเดา ตารางในข้อ 4 เป็น policy เดียวสำหรับ MVP; การให้คะแนนคำกำกวมอื่นต้องประเมินกับตัวอย่างที่คนตรวจแล้วก่อนเพิ่มกฎ
+
+### 9.4 Overall confidence and review policy
+
+เมื่อสามค่าข้างบนมีครบ คำนวณและปัดเป็นทศนิยมสามตำแหน่ง:
 
 ```text
 overall_confidence
 = 0.40 × skill_confidence
- + 0.35 × requirement_confidence
- + 0.25 × proficiency_confidence
+  + 0.35 × requirement_confidence
+  + 0.25 × proficiency_confidence
 ```
 
-การได้ `proficiency_level = unknown` พร้อม confidence สูง หมายถึงระบบมั่นใจว่าข้อความไม่ระบุระดับ ไม่ได้หมายถึงระบบรู้ระดับของ skill นั้น
+ตัวอย่าง `Postgres` เป็น required โดยไม่มี cue ระดับ: `0.40(0.95) + 0.35(1.00) + 0.25(0.95) = 0.9675 → 0.968` หากค่าใดเป็น `NULL` ให้ `overall_confidence=NULL` อย่าแทนด้วยศูนย์หรือ renormalize น้ำหนัก
 
-Threshold ต่อไปนี้ใช้เป็น **คำแนะนำสำหรับ review เท่านั้น** ใน MVP ห้าม reject record อัตโนมัติจาก threshold ก่อนตรวจผลกับ JD จริง:
+ตัวอย่างอีกสองกรณีช่วยแยกความสำคัญออกจากความมั่นใจ:
 
-| Overall confidence | แนวทาง |
+| Evidence | ผล | `importance_weight` | Confidence ที่มีหลักฐานชัด → `overall_confidence` |
+|---|---|---:|---|
+| `Strong Python skills are required.` | Python, required, advanced | 0.970 | canonical 1.00, required 1.00, strong 0.80 → **0.950** |
+| `Basic SQL knowledge is preferred.` | SQL, preferred, beginner | 0.570 | canonical 1.00, preferred 1.00, basic 0.90 → **0.975** |
+
+คะแนนข้างบนเป็นตัวอย่างตามกฎเมื่อข้อความทั้งประโยคเป็นหลักฐานตรงของ skill นั้น ไม่ใช่คะแนนที่ยืนยันความถูกต้องของ LLM กับทุก JD
+
+Threshold ใช้จัดลำดับ **review เท่านั้น** ระหว่างที่คะแนนยังไม่ calibrate กับ JD ที่คนตรวจแล้ว ไม่ reject หรือซ่อน record อัตโนมัติจาก threshold:
+
+| Overall confidence | แนวทางเริ่มต้น |
 |---|---|
-| `>= 0.85` | รับอัตโนมัติได้หลังผ่านหลักฐานและ schema validation |
-| `0.65–0.84` | เก็บผลและติดสถานะ uncertain |
-| `0.50–0.64` | ส่ง review |
-| `< 0.50` | ส่ง review; ยังเก็บ raw/extraction result ไว้ |
+| `>= 0.85` | หลักฐานค่อนข้างชัด; ยังต้องผ่าน validation |
+| `0.65–<0.85` | เก็บผลและติดสถานะ uncertain |
+| `<0.65` | ส่ง review และเก็บ raw/extraction result ไว้ |
+| `NULL` | กฎยังตัดสินไม่ได้; ส่ง review |
+
+ยังไม่ใช้การ `reject เมื่อ <0.50` ใน MVP เพราะคะแนนเป็น heuristic และอาจตัด skill จริงทิ้ง ต้องทบทวน threshold กับชุด JD ที่คนตรวจแล้วก่อนเปิดการตัดสินอัตโนมัติ
 
 ## 10. Storage target and schema alignment
 
@@ -286,7 +328,18 @@ created_at
 
 ตัวอย่าง JSON ที่แสดง `skill_name` เป็น convenience representation; ใน relational schema ชื่อ canonical มาจาก `core.skills` ผ่าน `skill_id` ส่วน `raw_skill_name` ต้องเก็บบน job-skill record หากต้องการตรวจคำต้นฉบับย้อนหลัง
 
-ณ ตอนเขียน spec นี้ DBML ยังมี `confidence` ค่าเดียวและไม่มี `raw_skill_name` หรือ confidence แยกสี่ค่า ดังนั้นรายการด้านบนเป็น **target contract** ไม่ใช่คำกล่าวว่า schema/migration ปัจจุบันรองรับครบแล้ว ต้องปรับ DBML และสร้าง migration ก่อน load ฟิลด์ที่ยังไม่มี ค่า `proficiency_level` ใน DBML ต้องจำกัดให้ตรงกับ `beginner`, `intermediate`, `advanced`, `expert`, `unknown`
+DBML และ migration `003_create_job_skills.sql` รองรับ field เป้าหมายเหล่านี้แล้ว โดย loader คำนวณคะแนนจากหลักฐานที่ตรวจได้และบันทึก `NULL` เมื่อกฎยังตัดสินไม่ได้:
+
+| ส่วน | สถานะโค้ดปัจจุบัน |
+|---|---|
+| LLM extraction และตรวจว่าข้อความ evidence อยู่ใน JD | มีแล้ว |
+| exact canonical/alias normalization และเก็บ unmatched | มีแล้ว; loader ตรวจว่าชื่อ skill ปรากฏใน evidence ก่อนยืนยัน `skill_id` |
+| `importance_weight` | คำนวณแล้วตามข้อ 8 |
+| `skill_confidence` | คำนวณจาก exact canonical/alias เมื่อชื่อ raw skill ปรากฏใน evidence ที่อ้างกลับ JD ได้; semantic inference ยังไม่รองรับ |
+| `requirement_confidence`, `proficiency_confidence`, `overall_confidence` | คำนวณตาม cue ที่ชัดใน evidence หรือหัวข้อที่ระบุได้; ค่าใดไม่ชัดเก็บเป็น `NULL` เพื่อ review |
+| การจัดการ conflict หลายตำแหน่ง, section และ conditional requirement | ตรวจหัวข้อที่รู้จักและบางรูปแบบของ negation; หากชื่อ skill ปรากฏหลายจุดใน JD จะไม่ให้ requirement/proficiency confidence อัตโนมัติ ต้อง review บริบททั้งหมด |
+
+ตัวอย่างการไหลของข้อมูลหนึ่ง job: LLM คืน `Postgres` + `required` + `unknown` + evidence จาก JD → alias map เป็น `PostgreSQL` → rule คำนวณ `importance_weight=0.88` → บันทึกหนึ่งแถวต่อ `(job_id, skill_id)` เมื่อมี job ในฐานข้อมูล ส่วนชื่อที่ไม่พบใน catalog อยู่ใน checkpoint เพื่อ review ไม่สร้าง `skill_id` โดยเดา
 
 ## 11. Aggregation contract (later stage)
 
@@ -301,6 +354,8 @@ weighted_demand_score = SUM(importance_weight) / total_jobs
 ```
 
 งานที่ extraction ล้มเหลวหรือไม่มี JD ใช้ได้ไม่รวมใน `total_jobs`; งานที่สำเร็จแต่ไม่พบ skill รวมอยู่ใน denominator และมี skills ว่าง การกำหนดกลุ่ม career, date window และจำนวนตัวอย่างต้องแนบกับ aggregate result
+
+ดังนั้นขั้น aggregation ต้องเข้าถึง `extraction_status` ของทุก job ที่อยู่ในช่วง ไม่สามารถใช้เฉพาะแถวใน `market.job_skills` นับ denominator ได้ เพราะ job ที่ extraction สำเร็จแต่ได้ `skills: []` ไม่มีแถวในตารางนี้ ปัจจุบันสถานะยังอยู่ใน checkpoint; ก่อนทำ aggregation ต้องกำหนดที่เก็บสถานะในฐานข้อมูลหรือวิธีอ่าน checkpoint ที่เชื่อถือได้
 
 สำหรับ `target_level` ให้พิจารณาเฉพาะ job-skill ที่มี proficiency ไม่ใช่ `unknown`; เลือกระดับที่พบบ่อยที่สุด และคำนวณ `target_level_confidence` เป็นสัดส่วนของระดับนั้นใน observations ที่ใช้ได้ `level_observation_count` คือจำนวน observations ดังกล่าว กรณีเสมอกันให้เป็น `unknown` จนกว่าจะมีกฎเพิ่ม
 

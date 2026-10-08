@@ -58,6 +58,19 @@ docker compose exec postgres psql -U glowjob -d glowjob -c "SELECT schema_name F
 
 The seed command upserts configured career names and creates one `general` profile for each career, so market postings have a reference profile to point to. The verification command uses the default local database name and user from `.env.example`; adjust them if you changed `DB_NAME` or `DB_USER`. The same commands work in PowerShell and CMD. Migrations are tracked in `system.schema_migrations` and can be safely re-run; already-applied files are skipped. See [migrations/README.md](migrations/README.md) for the migration convention and [the pipeline DBML](doc/schemas/pipeline-schema.dbml) for the pipeline schema plan.
 
+## Load job skills from a checkpoint
+
+After skill extraction, load a saved run into PostgreSQL without another JSearch or Gemini request:
+
+```shell
+python -m scripts.migrate
+python -m scripts.seed_reference_data
+python -m scripts.seed_skill_catalog
+python -m scripts.load_job_skills 20260927T172453146903Z
+```
+
+Replace the run ID with a file name under `data/processed/skill_extraction/` (without `.json`). The loader inserts or updates mapped postings, exact-name companies, and confirmed job-skill matches in one transaction. Completed extractions with no matched skills still load the posting; failed extractions and postings without a provider ID or mapped career remain only in the checkpoint. Unmatched skill names and query/run metadata stay in that checkpoint for review; the loader does not populate `market.job_search_matches` yet. Repeating the command updates existing rows instead of duplicating them. `importance_weight` uses the initial rule in the skill extraction spec. The loader calculates skill, requirement, and proficiency confidence from verified evidence and explicit cues, then calculates overall confidence when all three are available. Ambiguous or unsupported classifications retain `NULL` confidence for review.
+
 ## Layout
 
 - `src/extract/`: provider clients and query building
