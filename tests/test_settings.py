@@ -9,9 +9,9 @@ def test_default_configuration_loads() -> None:
     settings = load_settings()
 
     assert settings.search.country == "TH"
-    assert settings.search.max_pages == 1
+    assert settings.search.max_pages == 2
     assert settings.search.date_posted == "all"
-    assert settings.validation.time_window_days == 90
+    assert settings.validation.time_window_days == 184
     assert settings.validation.minimum_description_length == 100
     assert settings.careers["data_engineer"].queries
     assert "Cloud Data Engineer" in settings.careers["data_engineer"].title_aliases

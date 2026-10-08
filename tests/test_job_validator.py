@@ -77,7 +77,8 @@ def test_validate_jobs_reports_reasons_for_invalid_job() -> None:
         job_country="US",
         job_id=None,
         job_posted_at_datetime_utc=(
-            datetime.now(timezone.utc) - timedelta(days=120)
+            datetime.now(timezone.utc)
+            - timedelta(days=settings.validation.time_window_days + 1)
         ).isoformat(),
     )
 
@@ -92,7 +93,7 @@ def test_validate_jobs_reports_reasons_for_invalid_job() -> None:
         "job description is shorter than 50 characters",
         "job country US is outside selected country TH",
         "missing stable job identifier",
-        "posted date is older than 90 days",
+        f"posted date is older than {settings.validation.time_window_days} days",
     ]
 
 

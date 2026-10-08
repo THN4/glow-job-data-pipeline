@@ -21,3 +21,38 @@ careers:
       - Backend Engineer
       - Backend Developer
       - Backend Software Engineer
+  ai_engineer:
+    career_name: AI Engineer
+    title_aliases:
+      - AI Engineer
+      - Artificial Intelligence Engineer
+      - Generative AI Engineer
+      - GenAI Engineer
+    queries:
+      - AI Engineer
+      - Generative AI Engineer
+  data_scientist:
+    career_name: Data Scientist
+    title_aliases:
+      - Data Scientist
+      - Applied Data Scientist
+    queries:
+      - Data Scientist
+      - Junior Data Scientist
+  data_analyst:
+    career_name: Data Analyst
+    title_aliases:
+      - Data Analyst
+      - BI Analyst
+      - Business Intelligence Analyst
+    queries:
+      - Data Analyst
+      - Business Intelligence Analyst
+  analytics_engineer:
+    career_name: Analytics Engineer
+    title_aliases:
+      - Analytics Engineer
+      - Data Analytics Engineer
+    queries:
+      - Analytics Engineer
+      - Data Analytics Engineer

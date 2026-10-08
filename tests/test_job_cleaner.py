@@ -144,7 +144,7 @@ def test_relative_posting_older_than_configured_window_fails_validation() -> Non
                 "data": [
                     _valid_job(
                         job_posted_at_datetime_utc=None,
-                        job_posted_at="120 days ago",
+                        job_posted_at=f"{settings.validation.time_window_days + 1} days ago",
                     )
                 ]
             },
@@ -155,5 +155,5 @@ def test_relative_posting_older_than_configured_window_fails_validation() -> Non
 
     assert valid_jobs == []
     assert invalid_jobs[0]["errors"] == [
-        "posted date is older than 90 days"
+        f"posted date is older than {settings.validation.time_window_days} days"
     ]
