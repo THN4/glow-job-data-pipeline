@@ -129,6 +129,8 @@ feature/job-skills
 
 feature/career-skill-aggregation
 
+feature/pipeline-orchestration
+
 feature/pipeline-monitoring
 
 feature/aws-s3
@@ -579,6 +581,18 @@ Airflow    44%
 
 ---
 
+## 20.1 Local Pipeline Orchestration
+
+Branch:
+
+```text
+feature/pipeline-orchestration
+```
+
+Connect the existing extraction, skill loading, and career aggregation steps in one local command. Support replaying a saved raw run and explicitly starting a new run. Preserve checkpoints and stop before loading when skill extraction is incomplete. Scheduling and cloud deployment remain separate work.
+
+---
+
 # 21. Phase 14 — Ingestion Run Tracking
 
 Branch:
@@ -918,6 +932,8 @@ feature/skill-normalization
 feature/job-skills
         ↓
 feature/career-skill-aggregation
+        ↓
+feature/pipeline-orchestration
 ```
 
 After the core pipeline is stable:
@@ -1316,6 +1332,8 @@ main
     ├── feature/job-skills
     │
     ├── feature/career-skill-aggregation
+    │
+    ├── feature/pipeline-orchestration
     │
     ├── feature/ingestion-run-tracking
     │

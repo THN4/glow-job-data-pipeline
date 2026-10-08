@@ -76,9 +76,9 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     assert cleaned_jobs[0]["job"]["career_slug"] == "data_engineer"
     assert cleaned_jobs[0]["job"]["normalized_job_title"] == "Data Engineer"
     assert cleaned_jobs[0]["matches"] == [cleaned_jobs[0]["metadata"]]
-    assert "Validation completed: valid_jobs=6, invalid_jobs=0" in caplog.text
-    assert "Cleaning completed: cleaned_jobs=6, rejected_after_cleaning=0" in caplog.text
-    assert "Deduplication completed: unique_jobs=6, duplicates_removed=0" in caplog.text
+    assert f"Validation completed: valid_jobs={expected_query_count}, invalid_jobs=0" in caplog.text
+    assert f"Cleaning completed: cleaned_jobs={expected_query_count}, rejected_after_cleaning=0" in caplog.text
+    assert f"Deduplication completed: unique_jobs={expected_query_count}, duplicates_removed=0" in caplog.text
 
     raw_results = load_raw_result(
         output_dir=tmp_path,
@@ -147,6 +147,17 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     assert len(captured_jobs) == expected_query_count
     assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == expected_query_count
 
+    with pytest.raises(ValueError, match="smaller than the saved skill checkpoint"):
+        main(
+            replay_run_id=run_id,
+            extract_skills=True,
+            skill_limit=2,
+            skill_output_dir=skill_dir,
+            raw_output_dir=tmp_path,
+            company_review_output_dir=tmp_path / "company-review",
+        )
+    assert len(load_skill_results(run_id=run_id, output_dir=skill_dir)) == expected_query_count
+
     monkeypatch.setattr("src.main.extract_skills_for_jobs", fail_if_skill_extraction_runs)
     skill_jobs = main(
         replay_run_id=run_id,
@@ -156,7 +167,10 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
         company_review_output_dir=tmp_path / "company-review",
     )
     assert len(skill_jobs) == expected_query_count
-    assert "Skill extraction completed: jobs=6, completed=6, failed=0" in caplog.text
+    assert (
+        f"Skill extraction completed: jobs={expected_query_count}, "
+        f"completed={expected_query_count}, failed=0"
+    ) in caplog.text
 
 
 def test_main_deduplicates_across_queries_and_keeps_match_metadata(
@@ -235,3 +249,42 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
         f"Deduplication completed: unique_jobs=1, duplicates_removed={query_number - 1}"
         in caplog.text
     )
+
+
+def test_main_uses_supplied_id_for_a_new_raw_run(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_extract(_settings, *, output_dir, run_id):
+        captured.update(output_dir=output_dir, run_id=run_id)
+        return []
+
+    monkeypatch.setattr("src.main.extract_jobs", fake_extract)
+    result = main(new_run_id="known-run", raw_output_dir=tmp_path)
+
+    assert result == []
+    assert captured == {"output_dir": tmp_path, "run_id": "known-run"}
+
+
+def test_main_replays_run_from_older_career_config_with_explicit_query_count(
+    tmp_path,
+):
+    save_raw_result(
+        result={
+            "career_slug": "data_engineer",
+            "career_name": "Data Engineer",
+            "query": "Data Engineer",
+            "response": {"data": []},
+        },
+        output_dir=tmp_path,
+        run_id="older-run",
+        query_number=1,
+    )
+
+    with pytest.raises(ValueError, match="incomplete"):
+        main(replay_run_id="older-run", raw_output_dir=tmp_path)
+    assert main(
+        replay_run_id="older-run",
+        replay_query_count=1,
+        raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "company-review",
+    ) == []

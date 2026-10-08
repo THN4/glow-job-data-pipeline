@@ -42,7 +42,7 @@ To extract skills from an existing raw run, set `GEMINI_API_KEY` in `.env` and r
 python -m src.main --replay-run-id 20260928T120000000000Z --extract-skills --skill-limit 2
 ```
 
-Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Run the database migration and `python -m scripts.seed_skill_catalog` first. Gemini reads the cleaned JD and returns raw skill names with supporting evidence. The pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). Unmatched names are never assigned a guessed `skill_id`. New Gemini requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. If Gemini still returns HTTP 429 after the SDK's built-in retries, the run stops so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check your project's active limits in Google AI Studio. To check extraction quality on three hand-written JDs, run `python -m scripts.evaluate_skill_extraction`; the report is saved in `data/processed/skill_evaluation/report.json`. These JSON files are local checkpoints for review, not database records.
+Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Run the database migration and `python -m scripts.seed_skill_catalog` first. Gemini reads the cleaned JD and returns raw skill names with supporting evidence. The pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). Unmatched names are never assigned a guessed `skill_id`. New Gemini requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Gemini HTTP 429 currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check your project's active limits in Google AI Studio. To check extraction quality on three hand-written JDs, run `python -m scripts.evaluate_skill_extraction`; the report is saved in `data/processed/skill_evaluation/report.json`. These JSON files are local checkpoints for review, not database records.
 
 ## Local PostgreSQL
 
@@ -82,6 +82,24 @@ python -m scripts.aggregate_career_skills 2026-09-01 2026-09-30
 ```
 
 The dates are inclusive UTC `posted_at` dates. Only completed extractions with a nonempty JD and a known `posted_at` enter the denominator, including jobs with no matched skills. The command replaces statistics for that window, so rerunning it does not duplicate rows; if no jobs qualify, that window has no statistics. It reports the number of eligible postings, career profiles, and saved skill statistics. `importance_tier` stays `unknown` until a reviewed threshold is defined. A small checkpoint produces a small sample; do not treat its percentages as market-wide estimates.
+
+## Run the local pipeline in one command
+
+After running migrations and seeding careers and skills, replay a saved raw run, load its completed skills, and refresh one UTC posting-date window:
+
+```shell
+python -m scripts.run_pipeline --replay-run-id 20260927T172453146903Z --replay-query-count 6 --start-date 2026-09-01 --end-date 2026-09-30 --skill-limit 2
+```
+
+The example's first two jobs already have completed skill results in the checkpoint, so it makes no JSearch or Gemini request. That older raw run contains six queries; `--replay-query-count 6` preserves its completeness check after new careers are added to the configuration. New runs use the current query count automatically. Replay always skips JSearch, but it **does call Gemini** for jobs beyond the completed checkpoint. Omit `--skill-limit` to process the full raw run; a limit selects the first N career-mapped jobs overall, not N jobs per career. A limit smaller than an existing checkpoint is rejected to protect saved progress.
+
+To start a new run with JSearch and Gemini, use `--live` instead of `--replay-run-id`:
+
+```shell
+python -m scripts.run_pipeline --live --start-date 2026-09-01 --end-date 2026-09-30
+```
+
+The command prints the run ID and per-stage counts. If skill extraction is incomplete, it stops before loading and aggregation; successful jobs remain in the checkpoint so you can resume with `--replay-run-id <run_id>`. The aggregation window includes every eligible posting currently loaded in the database, including postings from earlier runs. Run `python -m scripts.seed_reference_data` after adding careers and before loading their postings. The current six-career configuration makes 14 JSearch search queries per live run, requesting up to two pages per query, followed by Gemini requests for jobs that pass validation. Scheduling, cloud storage, and monitoring are separate later tasks.
 
 ## Layout
 
