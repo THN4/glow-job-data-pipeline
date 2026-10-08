@@ -11,6 +11,7 @@ from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
 from src.skills.extractor import extract_skills_for_jobs
+from src.skills.normalizer import load_skill_catalog, normalize_skills_for_jobs
 from src.storage.raw_storage import load_raw_result
 from src.storage.company_review_storage import save_company_match_candidates
 from src.storage.skill_result_storage import load_skill_results, save_skill_results
@@ -216,6 +217,17 @@ def main(
             skill_status_counts.get("completed", 0),
             skill_status_counts.get("failed", 0),
         )
+        if skill_jobs:
+            catalog = load_skill_catalog()
+            skill_jobs = normalize_skills_for_jobs(skill_jobs, catalog)
+            save_skill_results(
+                skill_jobs, run_id=active_run_id, output_dir=skill_output_dir
+            )
+            logger.info(
+                "Skill normalization completed: matched=%d, unmatched=%d",
+                sum(len(entry["normalized_skills"]) for entry in skill_jobs),
+                sum(len(entry["unmatched_skills"]) for entry in skill_jobs),
+            )
         logger.info(
             "Skill results saved: %s", skill_output_dir / f"{active_run_id}.json"
         )
