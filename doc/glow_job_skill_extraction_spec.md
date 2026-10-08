@@ -341,7 +341,7 @@ DBML และ migration `003_create_job_skills.sql` รองรับ field �
 
 ตัวอย่างการไหลของข้อมูลหนึ่ง job: LLM คืน `Postgres` + `required` + `unknown` + evidence จาก JD → alias map เป็น `PostgreSQL` → rule คำนวณ `importance_weight=0.88` → บันทึกหนึ่งแถวต่อ `(job_id, skill_id)` เมื่อมี job ในฐานข้อมูล ส่วนชื่อที่ไม่พบใน catalog อยู่ใน checkpoint เพื่อ review ไม่สร้าง `skill_id` โดยเดา
 
-## 11. Aggregation contract (later stage)
+## 11. Aggregation contract
 
 Aggregate จาก job-skill records หลัง normalize แล้ว แยกตาม career profile และช่วงวันที่ที่ระบุ:
 
@@ -355,7 +355,7 @@ weighted_demand_score = SUM(importance_weight) / total_jobs
 
 งานที่ extraction ล้มเหลวหรือไม่มี JD ใช้ได้ไม่รวมใน `total_jobs`; งานที่สำเร็จแต่ไม่พบ skill รวมอยู่ใน denominator และมี skills ว่าง การกำหนดกลุ่ม career, date window และจำนวนตัวอย่างต้องแนบกับ aggregate result
 
-ดังนั้นขั้น aggregation ต้องเข้าถึง `extraction_status` ของทุก job ที่อยู่ในช่วง ไม่สามารถใช้เฉพาะแถวใน `market.job_skills` นับ denominator ได้ เพราะ job ที่ extraction สำเร็จแต่ได้ `skills: []` ไม่มีแถวในตารางนี้ ปัจจุบันสถานะยังอยู่ใน checkpoint; ก่อนทำ aggregation ต้องกำหนดที่เก็บสถานะในฐานข้อมูลหรือวิธีอ่าน checkpoint ที่เชื่อถือได้
+ขั้น aggregation ใช้ `market.job_postings.skill_extraction_completed` ซึ่งตัวโหลดตั้งเป็น `true` หลังบันทึกผล extract สำเร็จ รวมถึงงานที่ได้ `skills: []` ด้วย จึงไม่ใช้จำนวนแถว `market.job_skills` เป็น denominator งานที่ extract ล้มเหลวยังอยู่ใน checkpoint และไม่ถูกโหลดลง DB รอบนี้ ช่วงวันที่อิง `posted_at` ตามวัน UTC; งานที่ไม่มี `posted_at` ไม่เข้าช่วงวิเคราะห์ใดจนกว่าจะมีกฎวันที่ที่ตกลงกัน
 
 สำหรับ `target_level` ให้พิจารณาเฉพาะ job-skill ที่มี proficiency ไม่ใช่ `unknown`; เลือกระดับที่พบบ่อยที่สุด และคำนวณ `target_level_confidence` เป็นสัดส่วนของระดับนั้นใน observations ที่ใช้ได้ `level_observation_count` คือจำนวน observations ดังกล่าว กรณีเสมอกันให้เป็น `unknown` จนกว่าจะมีกฎเพิ่ม
 

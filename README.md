@@ -71,6 +71,18 @@ python -m scripts.load_job_skills 20260927T172453146903Z
 
 Replace the run ID with a file name under `data/processed/skill_extraction/` (without `.json`). The loader inserts or updates mapped postings, exact-name companies, and confirmed job-skill matches in one transaction. Completed extractions with no matched skills still load the posting; failed extractions and postings without a provider ID or mapped career remain only in the checkpoint. Unmatched skill names and query/run metadata stay in that checkpoint for review; the loader does not populate `market.job_search_matches` yet. Repeating the command updates existing rows instead of duplicating them. `importance_weight` uses the initial rule in the skill extraction spec. The loader calculates skill, requirement, and proficiency confidence from verified evidence and explicit cues, then calculates overall confidence when all three are available. Ambiguous or unsupported classifications retain `NULL` confidence for review.
 
+## Aggregate career skill demand
+
+After migration `004_create_career_skill_stats.sql`, load the saved skill run again so previously loaded postings receive `skill_extraction_completed=true`. Then refresh a posting-date window:
+
+```shell
+python -m scripts.migrate
+python -m scripts.load_job_skills 20260927T172453146903Z
+python -m scripts.aggregate_career_skills 2026-09-01 2026-09-30
+```
+
+The dates are inclusive UTC `posted_at` dates. Only completed extractions with a nonempty JD and a known `posted_at` enter the denominator, including jobs with no matched skills. The command replaces statistics for that window, so rerunning it does not duplicate rows; if no jobs qualify, that window has no statistics. It reports the number of eligible postings, career profiles, and saved skill statistics. `importance_tier` stays `unknown` until a reviewed threshold is defined. A small checkpoint produces a small sample; do not treat its percentages as market-wide estimates.
+
 ## Layout
 
 - `src/extract/`: provider clients and query building

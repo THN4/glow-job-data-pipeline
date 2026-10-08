@@ -109,3 +109,14 @@ class JobPostingRepository:
             (job_id, run_id, career_profile_id, search_query),
         )
         return cursor.rowcount == 1
+
+    def mark_skill_extraction_completed(self, job_id: int) -> None:
+        """Include this posting in career statistics, even if it has no skills."""
+        self._connection.execute(
+            """
+            UPDATE market.job_postings
+            SET skill_extraction_completed = true, updated_at = now()
+            WHERE job_id = %s
+            """,
+            (job_id,),
+        )

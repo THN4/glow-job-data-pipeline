@@ -159,6 +159,7 @@ def load_job_skills_from_run(
                         evidence_text=skill["evidence_text"],
                         extraction_method=skill["extraction_method"],
                     )
+                postings.mark_skill_extraction_completed(job_id)
                 counts["postings_loaded"] += 1
                 counts["skills_loaded"] += len(scored)
                 counts["unmatched_skills"] += len(entry["unmatched_skills"])
