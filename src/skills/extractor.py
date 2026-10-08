@@ -38,12 +38,17 @@ For each skill, return:
 - raw_skill_name: the skill wording used in the job description
 - requirement_type: required, preferred, optional, or unknown
 - proficiency_level: beginner, intermediate, advanced, expert, or unknown
-- evidence_text: an exact, continuous quote from the job description that
-  supports the skill and its classifications
+- evidence_text: copy a short, exact, continuous substring from the job
+  description that supports the skill and its classifications
 
 Rules:
 - Do not invent skills that have no supporting evidence in the description.
 - Do not return a skill when the job description says it is not used.
+- Copy evidence_text directly from job_description. Preserve its spelling,
+  capitalization, punctuation, and spacing exactly; do not paraphrase, correct,
+  normalize, or add ellipses.
+- Prefer the shortest complete sentence or clause that supports the skill and
+  its requirement/proficiency. If no exact quote supports it, omit the skill.
 - Use unknown when requirement or proficiency is not clear from the text.
 - Map plus, bonus, and nice-to-have wording to preferred.
 - Do not infer proficiency from the word "knowledge" alone; use unknown unless
