@@ -168,6 +168,7 @@ Table market.job_postings {
   publisher text [note: 'Publisher reported by the provider, distinct from provider']
   source_url text
   posted_at timestamptz
+  skill_extraction_completed boolean [not null, default: false, note: 'Completed skill extraction, including an empty skills list']
   collected_at timestamptz [not null, default: `now()`]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
