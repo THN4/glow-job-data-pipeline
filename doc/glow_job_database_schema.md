@@ -670,6 +670,8 @@ beginner / intermediate / advanced
 
 # 6. KNOWLEDGE / RAG Schema
 
+Flow การดึงเอกสาร สกัดความสัมพันธ์ และตรวจ learning graph อยู่ใน [learning-graph-flow.md](learning-graph-flow.md) ตารางในส่วนนี้ยังเป็นแบบร่างของฝั่ง knowledge
+
 ---
 
 # 6.1 `knowledge.knowledge_sources`
