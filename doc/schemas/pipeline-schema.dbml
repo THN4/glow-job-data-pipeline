@@ -10,7 +10,7 @@ Enum requirement_type {
   unknown
 }
 
-Enum proficiency_level {knowledge 
+Enum proficiency_level {
   beginner
   intermediate
   advanced
@@ -137,13 +137,18 @@ Table market.job_search_matches {
 Table market.job_skills {
   job_id bigint [not null]
   skill_id bigint [not null]
+  raw_skill_name text [not null]
   requirement_type requirement_type [not null, default: 'unknown']
-  proficiency_level proficiency_level
-  importance_weight numeric(4, 3)
-  confidence numeric(4, 3)
-  evidence_text text
-  extraction_method text [note: 'Examples: llm, rule, hybrid']
+  proficiency_level proficiency_level [not null, default: 'unknown']
+  importance_weight numeric(4, 3) [not null]
+  skill_confidence numeric(4, 3)
+  requirement_confidence numeric(4, 3)
+  proficiency_confidence numeric(4, 3)
+  overall_confidence numeric(4, 3)
+  evidence_text text [not null]
+  extraction_method text [not null, note: 'Examples: llm, rule, hybrid']
   created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
 
   indexes {
     (job_id, skill_id) [pk]
