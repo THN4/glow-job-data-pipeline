@@ -564,7 +564,7 @@ Tasks:
 - Count preferred occurrence
 - Calculate demand percentage
 - Store analysis time window
-- Update `career_skills`
+- Update `market.career_skill_stats`
 
 Output:
 
