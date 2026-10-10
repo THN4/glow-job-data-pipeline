@@ -39,6 +39,88 @@ def test_matches_canonical_and_alias_and_keeps_unmatched_for_review():
     assert "normalized_skills" not in entry
 
 
+def test_splits_evidenced_comma_list_into_individual_catalog_skills():
+    catalog = build_skill_catalog(
+        [(1, "Python", "programming_language"), (2, "SQL", "query_language")],
+        [(1, "Python, SQL")],
+    )
+    entry = {
+        "extraction_status": "completed",
+        "skills": [
+            {
+                **_skill("Python, SQL"),
+                "evidence_text": "Experience with Python, SQL, and data analysis.",
+            }
+        ],
+    }
+
+    [result] = normalize_skills_for_jobs([entry], catalog)
+
+    assert [(skill["skill_id"], skill["raw_skill_name"]) for skill in result["normalized_skills"]] == [
+        (1, "Python"),
+        (2, "SQL"),
+    ]
+    assert all(
+        skill["source_raw_skill_name"] == "Python, SQL"
+        for skill in result["normalized_skills"]
+    )
+    assert result["unmatched_skills"] == []
+
+
+def test_does_not_split_composite_without_evidence_for_each_component():
+    catalog = build_skill_catalog(
+        [(1, "Python", "programming_language"), (2, "SQL", "query_language")],
+        [(1, "Python, SQL")],
+    )
+    raw = {
+        **_skill("Python, SQL"),
+        "evidence_text": "Experience with Python and data analysis.",
+    }
+
+    [result] = normalize_skills_for_jobs(
+        [{"extraction_status": "completed", "skills": [raw]}], catalog
+    )
+
+    assert result["normalized_skills"] == []
+    assert result["unmatched_skills"] == [raw]
+
+
+def test_verified_parenthetical_acronym_maps_to_base_canonical():
+    catalog = build_skill_catalog(
+        [(1, "Machine Learning", "machine_learning")], []
+    )
+    raw = {
+        **_skill("Machine Learning (ML)"),
+        "evidence_text": "Experience with Machine Learning (ML).",
+    }
+
+    [result] = normalize_skills_for_jobs(
+        [{"extraction_status": "completed", "skills": [raw]}], catalog
+    )
+
+    [skill] = result["normalized_skills"]
+    assert skill["skill_id"] == 1
+    assert skill["skill_name"] == "Machine Learning"
+    assert skill["match_method"] == "exact_alias"
+
+
+def test_unverified_parenthetical_text_is_not_treated_as_acronym():
+    catalog = build_skill_catalog(
+        [(1, "Machine Learning", "machine_learning")], []
+    )
+    raw = {
+        **_skill("Machine Learning (MLOps)"),
+        "evidence_text": "Experience with Machine Learning (MLOps).",
+    }
+
+    [result] = normalize_skills_for_jobs(
+        [{"extraction_status": "completed", "skills": [raw]}], catalog
+    )
+
+    assert result["normalized_skills"] == []
+    assert result["unmatched_skills"] == [raw]
+
+
 def test_merges_duplicate_aliases_with_strongest_requirement_and_flags_level_conflict():
     catalog = build_skill_catalog([(12, "PostgreSQL", "database")], [(12, "Postgres")])
     entry = {

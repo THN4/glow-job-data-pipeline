@@ -193,13 +193,21 @@ Postgres | Postgre SQL | PostgreSQL
         PostgreSQL (canonical)
 ```
 
-ลำดับ MVP:
+การโหลด job skills ใช้ลำดับนี้:
 
 1. exact canonical match ใน `core.skills`
 2. exact alias match ใน `core.skill_aliases`
-3. ถ้ายังไม่พบ ให้เก็บเป็น unmatched/review candidate ไม่สร้าง `skill_id` โดยเดา
+3. ถ้ายังไม่พบ ให้คงชื่อดิบไว้ใน checkpoint; loader จะไม่สร้าง alias หรือ skill ใหม่
 
-Fuzzy matching, RapidFuzz และ embedding เป็นทางเลือกสำหรับระยะถัดไป ไม่ใช่เงื่อนไขจำเป็นของ MVP การเพิ่ม alias ที่ยืนยันแล้วเป็นวิธีแก้รายการ unmatched ในช่วงแรก
+การตรวจ candidate ทำแยกด้วย `python -m scripts.preview_skill_catalog_rebuild`:
+
+1. อ่าน checkpoint ทั้งหมดและ bootstrap catalog จาก `config/skills.yaml` โดยไม่อ่านหรือเขียน DB
+2. รวมชื่อที่ต่างกันแค่ case/spacing และทำเครื่องหมายกลุ่มชื่อที่มีคำชุดเดียวกันแต่เรียงต่างกัน เช่น `AI agent` / `agent AI`
+3. Gemini เสนอ canonical match, ชื่อ skill ใหม่, noise หรือ uncertain เมื่อเรียกด้วย `--suggest-limit`; ทุกผลยังเป็นข้อเสนอใน CSV
+4. `ready_for_approval` ต้องเป็น high confidence, มี evidence match อย่างน้อย 2 postings, เป็นชื่อที่ไม่ generic/compound และ candidate ใหม่ต้องพบอย่างน้อย 3 postings
+5. รายการอื่นอยู่ใน `manual_review`; ไม่มีรายการใดถูกเพิ่มใน DB โดย preview
+
+`config/skills.yaml` เป็น bootstrap input ไม่ใช่รายการที่ต้องเติมตาม candidate ใหม่ทุกครั้ง เมื่ออนุมัติ catalog rebuild แล้ว DB จะเป็นแหล่งข้อมูลหลักใน runtime ความมั่นใจจาก Gemini เป็น self-assessment ไม่ใช่ calibrated probability
 
 ## 8. Importance weight
 
@@ -335,11 +343,11 @@ DBML และ migration `003_create_job_skills.sql` รองรับ field �
 | LLM extraction และตรวจว่าข้อความ evidence อยู่ใน JD | มีแล้ว |
 | exact canonical/alias normalization และเก็บ unmatched | มีแล้ว; loader ตรวจว่าชื่อ skill ปรากฏใน evidence ก่อนยืนยัน `skill_id` |
 | `importance_weight` | คำนวณแล้วตามข้อ 8 |
-| `skill_confidence` | คำนวณจาก exact canonical/alias เมื่อชื่อ raw skill ปรากฏใน evidence ที่อ้างกลับ JD ได้; semantic inference ยังไม่รองรับ |
+| `skill_confidence` | คำนวณจาก exact canonical/alias; ชื่อที่ยังไม่อยู่ใน catalog จะไม่ถูกโหลดเป็น job skill |
 | `requirement_confidence`, `proficiency_confidence`, `overall_confidence` | คำนวณตาม cue ที่ชัดใน evidence หรือหัวข้อที่ระบุได้; ค่าใดไม่ชัดเก็บเป็น `NULL` เพื่อ review |
 | การจัดการ conflict หลายตำแหน่ง, section และ conditional requirement | ตรวจหัวข้อที่รู้จักและบางรูปแบบของ negation; หากชื่อ skill ปรากฏหลายจุดใน JD จะไม่ให้ requirement/proficiency confidence อัตโนมัติ ต้อง review บริบททั้งหมด |
 
-ตัวอย่างการไหลของข้อมูลหนึ่ง job: LLM คืน `Postgres` + `required` + `unknown` + evidence จาก JD → alias map เป็น `PostgreSQL` → rule คำนวณ `importance_weight=0.88` → บันทึกหนึ่งแถวต่อ `(job_id, skill_id)` เมื่อมี job ในฐานข้อมูล ส่วนชื่อที่ไม่พบใน catalog อยู่ใน checkpoint เพื่อ review ไม่สร้าง `skill_id` โดยเดา
+ตัวอย่างการไหลของข้อมูลหนึ่ง job: LLM คืน `Postgres` + `required` + `unknown` + evidence จาก JD → loader หา alias `Postgres` ที่อนุมัติแล้ว → rule คำนวณ `importance_weight=0.88` → บันทึกหนึ่งแถวต่อ `(job_id, skill_id)` เมื่อมี job ในฐานข้อมูล ส่วนชื่อที่ยังไม่รู้จักจะอยู่ใน checkpoint และถูกตรวจใน catalog rebuild preview ก่อนเพิ่มเข้า catalog
 
 ## 11. Aggregation contract
 

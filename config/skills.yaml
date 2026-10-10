@@ -1,4 +1,4 @@
-# Confirmed names only. Unmatched raw skills stay unmatched until reviewed.
+# Bootstrap catalog used for seeding and offline rebuild previews.
 skills:
   python:
     skill_name: Python

@@ -67,6 +67,7 @@ def seed_skill_catalog(skills_file: Path = SKILLS_FILE) -> list[str]:
                     VALUES (%s, %s)
                     ON CONFLICT (skill_name) DO UPDATE
                     SET skill_category = EXCLUDED.skill_category,
+                        catalog_status = 'approved',
                         updated_at = now()
                     RETURNING skill_id
                     """,

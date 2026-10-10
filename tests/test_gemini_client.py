@@ -74,3 +74,41 @@ def test_gemini_generate_identifies_rate_limit_without_exposing_provider_details
         gemini_client.gemini_generate("Extract skills")
 
     assert "sensitive quota details" not in str(error.value)
+
+
+def test_gemini_generate_retries_server_error_then_succeeds(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    fake_client = MagicMock()
+    generate = fake_client.__enter__.return_value.models.generate_content
+    generate.side_effect = [
+        errors.ServerError(503, {"error": {"message": "temporary outage"}}),
+        Mock(text='{"suggestions": []}'),
+    ]
+    monkeypatch.setattr(gemini_client.genai, "Client", Mock(return_value=fake_client))
+    sleeps = []
+    monkeypatch.setattr(gemini_client.time, "sleep", sleeps.append)
+
+    result = gemini_client.gemini_generate("Review candidates")
+
+    assert result == '{"suggestions": []}'
+    assert generate.call_count == 2
+    assert sleeps == [2]
+
+
+def test_gemini_generate_stops_after_bounded_server_error_retries(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    fake_client = MagicMock()
+    generate = fake_client.__enter__.return_value.models.generate_content
+    generate.side_effect = errors.ServerError(
+        503, {"error": {"message": "sensitive outage details"}}
+    )
+    monkeypatch.setattr(gemini_client.genai, "Client", Mock(return_value=fake_client))
+    sleeps = []
+    monkeypatch.setattr(gemini_client.time, "sleep", sleeps.append)
+
+    with pytest.raises(RuntimeError, match=r"after 3 attempts \(HTTP 503\)") as error:
+        gemini_client.gemini_generate("Review candidates")
+
+    assert generate.call_count == 3
+    assert sleeps == [2, 4]
+    assert "sensitive outage details" not in str(error.value)
