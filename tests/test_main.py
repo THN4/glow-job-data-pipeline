@@ -4,6 +4,7 @@ import pytest
 
 from src.config.settings import load_settings
 from src.main import main
+from src.skills.extractor import EXTRACTION_PROMPT_VERSION
 from src.skills.gemini_client import GeminiRateLimitError
 from src.storage.raw_storage import load_raw_result, save_raw_result
 from src.storage.skill_result_storage import load_skill_results
@@ -92,7 +93,12 @@ def test_main_replays_raw_run_without_calling_api(monkeypatch, tmp_path, caplog)
     def fake_extract_skills(jobs):
         captured_jobs.extend(jobs)
         return [
-            {**entry, "extraction_status": "completed", "skills": []}
+            {
+                **entry,
+                "extraction_status": "completed",
+                "skills": [],
+                "skill_extraction_prompt_version": EXTRACTION_PROMPT_VERSION,
+            }
             for entry in jobs
         ]
 

@@ -40,7 +40,7 @@ def test_preview_splits_composite_and_matches_each_component():
     assert rows == []
     assert summary["composite_occurrences_split"] == 1
     assert summary["split_components_created"] == 2
-    assert summary["seed_matched_occurrences"] == 2
+    assert summary["catalog_matched_occurrences"] == 2
 
 
 def test_preview_queues_only_unknown_component_of_composite():
@@ -55,7 +55,7 @@ def test_preview_queues_only_unknown_component_of_composite():
     assert rows[0]["candidate_name"] == "Rust"
     assert rows[0]["observed_names"] == ["Rust"]
     assert rows[0]["source_composite_names"] == ["Python, Rust"]
-    assert summary["seed_matched_occurrences"] == 1
+    assert summary["catalog_matched_occurrences"] == 1
     assert summary["composite_occurrences_split"] == 1
 
 
@@ -76,7 +76,7 @@ def test_preview_matches_verified_acronym_to_seed_canonical():
     )
 
     assert rows == []
-    assert summary["seed_matched_occurrences"] == 1
+    assert summary["catalog_matched_occurrences"] == 1
 
 
 def test_catalog_audit_flags_composite_alias_and_acronym_duplicate():
