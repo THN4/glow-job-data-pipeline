@@ -61,6 +61,24 @@ proposal and do not require a manual decision unless you want to correct one.
 Resolve `manual_review` and `needs_llm_suggestion` rows before apply. The apply
 command refuses to reset the DB while any required manual decision remains.
 
+### Correct a previous decision or merge duplicate proposals
+
+If two candidate names refer to the same skill, keep one proposed canonical
+name and map the other candidate to it. To revisit saved decisions and
+high-confidence proposals, run:
+
+```powershell
+python -m scripts.review_skill_catalog_preview --include-reviewed --all-candidates
+```
+
+This edits only the preview CSV; it does not call Gemini or write to the DB.
+After checking the proposed catalog with `--list-catalog`, run `--dry-run`,
+then `--apply` to rebuild canonical skills, aliases, and job-skill links from
+the saved checkpoints. If the catalog was already applied, the same process
+can be repeated: apply backs up and rebuilds the five skill-related tables
+again, and restarts skill IDs from 1. Job postings and other non-skill tables
+remain in place.
+
 ## Apply after review
 
 ```powershell

@@ -61,7 +61,7 @@ The seed command upserts configured career names and creates one `general` profi
 
 ## Clean skill-catalog rebuild
 
-The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The prepare step calls Gemini again for every saved posting, creates concise candidate groups, and asks Gemini to propose canonical names. No database rows change during preparation or review.
+The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The command below calls Gemini again for every saved posting, creates concise candidate groups, and asks Gemini to propose canonical names. No database rows change during preparation or review. Without `--force-all-extraction`, completed checkpoints from the current prompt version are reused.
 
 1. Prepare fresh extraction and a new candidate preview (requires `GEMINI_API_KEY`):
 
@@ -77,7 +77,15 @@ The rebuild starts from the cleaned job-description checkpoints and an empty ski
    python -m scripts.review_skill_catalog_preview
    ```
 
-   The reviewer saves decisions only in `data/processed/skill_candidates/catalog_rebuild_preview.csv`. `ready_for_approval` candidates already have a proposed canonical decision; review `manual_review` and `needs_llm_suggestion` rows, then use `--list-catalog` to inspect selected names. You can map a candidate to a proposed name, create a custom canonical name, ignore it, or split it into components. The reviewer does not write to PostgreSQL.
+   The reviewer saves decisions only in `data/processed/skill_candidates/catalog_rebuild_preview.csv`. `ready_for_approval` candidates already have a proposed canonical decision; resolve `manual_review` and `needs_llm_suggestion` rows, then use `--list-catalog` to inspect selected names. You can map a candidate to a proposed name, create a custom canonical name, ignore it, or split it into components. The reviewer does not write to PostgreSQL.
+
+   To correct a previous decision or merge duplicate proposals before apply, reopen candidates with:
+
+   ```shell
+   python -m scripts.review_skill_catalog_preview --include-reviewed --all-candidates
+   ```
+
+   Keep the preferred canonical proposal and map each duplicate candidate to it. This changes only the preview CSV; it does not re-extract jobs or update the database. If the catalog was already applied, edit the saved preview this way and run apply again to rebuild skill aliases and posting-skill links from the checkpoints.
 
 3. After reviewing all candidates, apply the rebuild:
 
@@ -85,7 +93,7 @@ The rebuild starts from the cleaned job-description checkpoints and an empty ski
    python -m scripts.rebuild_skill_catalog_from_checkpoints --apply
    ```
 
-   Apply creates a timestamped backup, verifies checkpoint coverage for postings in the database, resets only `core.skills`, `core.skill_aliases`, `core.skill_candidate_reviews`, `market.job_skills`, and `market.career_skill_stats` with `RESTART IDENTITY`, then reloads the skill links and career aggregates. Skill IDs start from 1 again. Job postings, careers, companies, and raw job data are preserved. Do not run the apply command until your review is complete. For split decisions, only transformed checkpoint copies used during apply contain the component names; the original extraction checkpoints stay unchanged.
+   Apply creates a timestamped backup, verifies checkpoint coverage for postings in the database, resets only `core.skills`, `core.skill_aliases`, `core.skill_candidate_reviews`, `market.job_skills`, and `market.career_skill_stats` with `RESTART IDENTITY`, then reloads the skill links and career aggregates. Skill IDs start from 1 again. Job postings, careers, companies, and raw job data are preserved. Apply is allowed when all required manual-review decisions are resolved; high-confidence `ready_for_approval` proposals do not need an extra manual decision. For split decisions, only transformed checkpoint copies used during apply contain the component names; the original extraction checkpoints stay unchanged.
 
 After the catalog is applied, use `python -m scripts.load_job_skills <run_id>` for future checkpoint loads.
 
