@@ -1,8 +1,6 @@
 import json
-from pathlib import Path
 
 import pytest
-import yaml
 
 from src.skills.candidate_suggester import suggest_skill_candidates
 from src.skills.normalizer import build_skill_catalog
@@ -191,50 +189,28 @@ def test_suggester_does_not_call_model_when_no_rows():
     assert suggest_skill_candidates([], _catalog(), generate=unexpected_call) == []
 
 
-def test_suggester_accepts_every_canonical_skill_in_project_config():
-    config = yaml.safe_load(Path("config/skills.yaml").read_text(encoding="utf-8"))
-    configured_skills = config["skills"]
-    skills = [
-        (index, value["skill_name"], value["skill_category"])
-        for index, value in enumerate(configured_skills.values(), start=1)
-    ]
-    aliases = [
-        (index, alias)
-        for index, value in enumerate(configured_skills.values(), start=1)
-        for alias in value["aliases"]
-    ]
-    catalog = build_skill_catalog(skills, aliases)
-    rows = [
-        {
-            "candidate_name": f"{skill_name} platform",
-            "observed_names": [f"{skill_name} platform"],
-            "occurrence_count": 1,
-            "example_job_titles": ["Engineer"],
-            "example_evidence": [f"Experience with {skill_name} platform."],
-        }
-        for _, skill_name, _ in skills
-    ]
+def test_clean_catalog_prompt_uses_categories_without_old_catalog():
+    rows = _rows()[:1]
     response = {
         "suggestions": [
             {
-                "candidate_id": index,
-                "decision": "existing_skill",
-                "canonical_skill_name": skill_name,
-                "skill_category": None,
+                "candidate_id": 0,
+                "decision": "new_skill",
+                "canonical_skill_name": "Postgres DB",
+                "skill_category": "database",
                 "confidence": "high",
-                "reason": "The evidence identifies this configured skill.",
+                "reason": "The evidence names a database technology.",
             }
-            for index, (_, skill_name, _) in enumerate(skills)
         ]
     }
+    captured_prompt = []
 
     suggestions = suggest_skill_candidates(
         rows,
-        catalog,
-        generate=lambda _: json.dumps(response),
+        {},
+        generate=lambda prompt: captured_prompt.append(prompt) or json.dumps(response),
     )
 
-    assert len(suggestions) == len(configured_skills)
-    assert [item["suggested_skill_name"] for item in suggestions] == [
-        value["skill_name"] for value in configured_skills.values()
-    ]
+    assert suggestions[0]["suggested_skill_category"] == "database"
+    assert "prior database is intentionally excluded" in captured_prompt[0]
+    assert '"database"' in captured_prompt[0]

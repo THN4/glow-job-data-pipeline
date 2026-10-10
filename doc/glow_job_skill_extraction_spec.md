@@ -199,15 +199,9 @@ Postgres | Postgre SQL | PostgreSQL
 2. exact alias match ใน `core.skill_aliases`
 3. ถ้ายังไม่พบ ให้คงชื่อดิบไว้ใน checkpoint; loader จะไม่สร้าง alias หรือ skill ใหม่
 
-การตรวจ candidate ทำแยกด้วย `python -m scripts.preview_skill_catalog_rebuild`:
+การสร้าง catalog ใหม่ใช้ `python -m scripts.rebuild_skill_catalog_from_checkpoints --prepare-only --reextract --force-all-extraction` เพื่อให้ Gemini อ่าน JD ที่บันทึกไว้ใหม่ด้วย prompt แบบ atomic-skill แล้วสร้าง preview โดยเริ่มจาก catalog ว่าง ไม่มีรายชื่อ skill ที่ seed จากไฟล์ YAML หรือจาก catalog เดิม ผลลัพธ์และการ review จะอยู่ใน CSV และยังไม่เขียน DB จนกว่าจะสั่ง `--apply` หลัง review เสร็จ
 
-1. อ่าน checkpoint ทั้งหมดและ bootstrap catalog จาก `config/skills.yaml` โดยไม่อ่านหรือเขียน DB
-2. รวมชื่อที่ต่างกันแค่ case/spacing และทำเครื่องหมายกลุ่มชื่อที่มีคำชุดเดียวกันแต่เรียงต่างกัน เช่น `AI agent` / `agent AI`
-3. Gemini เสนอ canonical match, ชื่อ skill ใหม่, noise หรือ uncertain เมื่อเรียกด้วย `--suggest-limit`; ทุกผลยังเป็นข้อเสนอใน CSV
-4. `ready_for_approval` ต้องเป็น high confidence, มี evidence match อย่างน้อย 2 postings, เป็นชื่อที่ไม่ generic/compound และ candidate ใหม่ต้องพบอย่างน้อย 3 postings
-5. รายการอื่นอยู่ใน `manual_review`; ไม่มีรายการใดถูกเพิ่มใน DB โดย preview
-
-`config/skills.yaml` เป็น bootstrap input ไม่ใช่รายการที่ต้องเติมตาม candidate ใหม่ทุกครั้ง เมื่ออนุมัติ catalog rebuild แล้ว DB จะเป็นแหล่งข้อมูลหลักใน runtime ความมั่นใจจาก Gemini เป็น self-assessment ไม่ใช่ calibrated probability
+ระบบรวมรูปแบบที่ต่างกันด้านตัวพิมพ์/ช่องว่าง และทำเครื่องหมายชื่อที่มีคำชุดเดียวกันแต่เรียงต่างกัน เช่น `AI agent` / `agent AI` เพื่อให้ตรวจซ้ำ ข้อเสนอ `ready_for_approval` ยังเป็นข้อเสนอจาก Gemini ที่ผ่านเงื่อนไขหลักฐานของ preview; `manual_review` และ `needs_llm_suggestion` ต้องให้ผู้ใช้ตัดสินใจก่อน apply ความมั่นใจของ Gemini เป็น self-assessment ไม่ใช่ calibrated probability
 
 ## 8. Importance weight
 

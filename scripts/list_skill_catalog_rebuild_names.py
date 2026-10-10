@@ -1,7 +1,7 @@
 """Print canonical skill names selected for the next catalog rebuild.
 
-By default, the list combines the bootstrap catalog, saved manual create/split
-decisions, and high-confidence automatic approvals accepted by the rebuild
+The list combines saved manual create/split decisions and high-confidence
+automatic approvals accepted by the rebuild
 logic. Candidates still awaiting a manual decision are excluded. Pass
 --manual-decisions-only to exclude automatic approvals. The preview is read
 locally; this script does not query or change DB.
@@ -22,14 +22,10 @@ from scripts.rebuild_skill_catalog_from_checkpoints import (
     PREVIEW_FILE,
     _build_final_catalog,
 )
-from scripts.seed_skill_catalog import load_skill_records
 from src.skills.normalizer import skill_identity_key
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SEED = PROJECT_ROOT / "config" / "skills.yaml"
-
-
 def _decode_json(value: object, *, field: str, candidate: str) -> object:
     decoded = value
     while isinstance(decoded, str):
@@ -118,11 +114,10 @@ def _separate_map_targets(
 
 
 def _get_catalog_names(
-    preview_rows: list[dict[str, object]], seed_file: Path
+    preview_rows: list[dict[str, object]],
 ) -> tuple[list[str], list[str]]:
-    seed_records = load_skill_records(seed_file)
     build_rows, mapped_targets = _separate_map_targets(preview_rows)
-    final_records, _ = _build_final_catalog(build_rows, seed_records)
+    final_records, _ = _build_final_catalog(build_rows, [])
     names = sorted({name for name, _, _ in final_records}, key=lambda name: name.casefold())
     known_identities = {skill_identity_key(name) for name in names}
     missing_targets = sorted(
@@ -142,9 +137,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--preview", type=Path, default=PREVIEW_FILE)
-    parser.add_argument("--seed-file", type=Path, default=DEFAULT_SEED)
     parser.add_argument("--search", help="Case-insensitive substring of a canonical name")
-    parser.add_argument("--new-only", action="store_true", help="Exclude bootstrap seed names")
     parser.add_argument(
         "--manual-decisions-only",
         action="store_true",
@@ -164,13 +157,7 @@ def main() -> None:
                 for row in preview_rows
                 if str(row.get("review_decision", "")).strip()
             ]
-        names, missing_targets = _get_catalog_names(preview_rows, arguments.seed_file)
-        if arguments.new_only:
-            seed_names = {
-                skill_identity_key(name)
-                for name, _, _ in load_skill_records(arguments.seed_file)
-            }
-            names = [name for name in names if skill_identity_key(name) not in seed_names]
+        names, missing_targets = _get_catalog_names(preview_rows)
         if arguments.search:
             query = arguments.search.casefold()
             names = [name for name in names if query in name.casefold()]

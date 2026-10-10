@@ -16,11 +16,11 @@ from src.load.job_skill_loader import load_job_skills_from_run
 from src.skills.catalog_rebuild_preview import (
     build_catalog_rebuild_preview,
     finalize_preview_suggestions,
-    load_bootstrap_catalog,
     load_skill_checkpoints,
+    scan_suggested_duplicates,
     save_catalog_rebuild_preview,
 )
-from src.skills.extractor import extract_skills_for_jobs
+from src.skills.extractor import EXTRACTION_PROMPT_VERSION, extract_skills_for_jobs
 from src.skills.candidate_suggester import suggest_skill_candidates
 from src.skills.gemini_client import gemini_generate
 from src.skills.normalizer import (
@@ -30,7 +30,6 @@ from src.skills.normalizer import (
 )
 from src.storage.skill_result_storage import save_skill_results
 from scripts.preview_skill_catalog_rebuild import _resume_existing_rows
-from scripts.seed_skill_catalog import load_skill_records
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -115,33 +114,21 @@ def _reextract_checkpoints(
     fallback_count = 0
     for run_id, entries in checkpoints:
         for index, entry in enumerate(entries):
-            if entry.get("catalog_rebuild_extracted_at") and not force_all:
+            if (
+                entry.get("catalog_rebuild_extracted_at")
+                and entry.get("extraction_status") == "completed"
+                and entry.get("skill_extraction_prompt_version")
+                == EXTRACTION_PROMPT_VERSION
+                and not force_all
+            ):
                 continue
             if extracted_count and request_interval:
                 time.sleep(request_interval)
-            previous_result = entry
             result = extract_skills_for_jobs([entry])[0]
             if result.get("extraction_status") == "completed":
                 result["catalog_rebuild_extracted_at"] = datetime.now(
                     timezone.utc
                 ).isoformat()
-            elif (
-                previous_result.get("extraction_status") == "completed"
-                and "evidence_text must be an exact quote" in str(
-                    result.get("extraction_error", "")
-                )
-            ):
-                # A malformed quote should not erase a previously valid job
-                # extraction or block the full catalog rebuild.
-                result = dict(previous_result)
-                result["catalog_rebuild_extracted_at"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
-                result["catalog_rebuild_extraction_fallback"] = (
-                    "Reused prior completed extraction because Gemini returned "
-                    "evidence that was not an exact quote."
-                )
-                fallback_count += 1
             entries[index] = result
             save_skill_results(entries, run_id=run_id, output_dir=output_dir)
             extracted_count += 1
@@ -186,7 +173,7 @@ def _read_prior_preview() -> tuple[list[str], list[dict[str, str]]]:
 
 def _suggest_candidates(
     rows: list[dict[str, object]],
-    bootstrap_catalog: dict[str, dict[str, object]],
+    catalog: dict[str, dict[str, object]],
     *,
     limit: int,
     batch_size: int,
@@ -209,7 +196,7 @@ def _suggest_candidates(
             try:
                 suggestions = suggest_skill_candidates(
                     batch,
-                    bootstrap_catalog,
+                    catalog,
                     generate=gemini_generate,
                     include_candidate_ids=False,
                     candidate_pool=candidate_pool,
@@ -282,26 +269,26 @@ def _parse_split_members(row: dict[str, object]) -> list[dict[str, str]]:
 
 
 def _build_final_catalog(
-    rows: list[dict[str, object]], seed_records: list[tuple[str, str, list[str]]]
+    rows: list[dict[str, object]], initial_records: list[tuple[str, str, list[str]]]
 ) -> tuple[list[tuple[str, str, list[str]]], dict[str, dict[str, str]]]:
     records: dict[str, dict[str, object]] = {}
     alias_targets: dict[str, str] = {}
-    seed_by_identity: dict[str, str] = {}
-    for name, category, aliases in seed_records:
+    initial_by_identity: dict[str, str] = {}
+    for name, category, aliases in initial_records:
         key = skill_name_key(name)
         identity = skill_identity_key(name)
-        existing_key = seed_by_identity.get(identity)
+        existing_key = initial_by_identity.get(identity)
         if existing_key is not None:
             existing = records[existing_key]
             if existing["category"] != category:
                 raise ValueError(
-                    f"Conflicting bootstrap categories for equivalent skill: {name}"
+                    f"Conflicting initial categories for equivalent skill: {name}"
                 )
             canonical = str(existing["name"])
             if key != skill_name_key(canonical):
                 prior_target = alias_targets.get(key)
                 if prior_target and skill_identity_key(prior_target) != identity:
-                    raise ValueError(f"Duplicate bootstrap skill/alias: {name}")
+                    raise ValueError(f"Duplicate initial skill/alias: {name}")
                 alias_targets[key] = canonical
                 existing["aliases"].add(name)
             canonical_key = skill_name_key(canonical)
@@ -310,20 +297,20 @@ def _build_final_catalog(
                 if not alias_key or alias_key == canonical_key:
                     continue
                 if alias_key in records and skill_identity_key(alias) != identity:
-                    raise ValueError(f"Duplicate bootstrap skill/alias: {alias}")
+                    raise ValueError(f"Duplicate initial skill/alias: {alias}")
                 prior_target = alias_targets.get(alias_key)
                 if prior_target and skill_identity_key(prior_target) != identity:
-                    raise ValueError(f"Duplicate bootstrap skill/alias: {alias}")
+                    raise ValueError(f"Duplicate initial skill/alias: {alias}")
                 alias_targets[alias_key] = canonical
                 existing["aliases"].add(alias)
             continue
 
         records[key] = {"name": name, "category": category, "aliases": set()}
-        seed_by_identity[identity] = key
+        initial_by_identity[identity] = key
         for alias in aliases:
             alias_key = skill_name_key(alias)
             if alias_key in alias_targets or alias_key in records:
-                raise ValueError(f"Duplicate bootstrap skill/alias: {alias}")
+                raise ValueError(f"Duplicate initial skill/alias: {alias}")
             alias_targets[alias_key] = name
             records[key]["aliases"].add(alias)
 
@@ -449,6 +436,44 @@ def _build_final_catalog(
                 f"New-skill decision for {row.get('candidate_name')!r} lacks name/category"
             )
         add_skill(name, category)
+
+    # A manual map may target a high-confidence proposal from another row.
+    # Register only the explicitly selected proposals before applying aliases;
+    # this keeps map-existing decisions valid without importing the old DB.
+    manual_targets: set[str] = set()
+    for row in rows:
+        decision = str(row.get("review_decision", "")).strip()
+        if decision == "map_existing":
+            target = str(row.get("canonical_skill_name", "")).strip()
+            if target:
+                manual_targets.add(target)
+        elif decision == "split_into_skills":
+            manual_targets.update(
+                member["skill_name"]
+                for member in _parse_split_members(row)
+                if member["decision"] == "map_existing"
+            )
+    for target in manual_targets:
+        if record_key_for(target) is not None:
+            continue
+        for proposed in rows:
+            if proposed.get("review_decision"):
+                continue
+            if not (
+                proposed.get("preview_status") == "ready_for_approval"
+                and proposed.get("confidence_level") == "high"
+                and proposed.get("suggestion_decision") == "new_skill"
+            ):
+                continue
+            proposed_name = str(proposed.get("suggested_skill_name", "")).strip()
+            category = str(proposed.get("suggested_skill_category", "")).strip()
+            if (
+                skill_identity_key(proposed_name) == skill_identity_key(target)
+                and skill_identity_key(proposed_name) not in conflicting_auto_new
+                and category
+            ):
+                add_skill(proposed_name, category)
+                break
 
     # Apply reviewed aliases before automatic high-confidence additions. A
     # manual mapping is stronger evidence than an automatic new-skill name;
@@ -683,56 +708,6 @@ def _build_final_catalog(
     return final_records, decisions
 
 
-def _load_reviewed_database_targets(
-    rows: list[dict[str, object]],
-    seed_records: list[tuple[str, str, list[str]]],
-) -> list[tuple[str, str, list[str]]]:
-    """Keep explicitly selected legacy DB canonicals in the rebuilt catalog.
-
-    Review allows mapping to a canonical from the current database, but a clean
-    rebuild starts from the bootstrap file. Bring back only DB skills explicitly
-    selected by a map-existing decision (including split components), rather
-    than carrying the entire old catalog into the new one.
-    """
-    selected: dict[str, str] = {}
-    seed_identities = {skill_identity_key(name) for name, _, _ in seed_records}
-    for row in rows:
-        decision = str(row.get("review_decision", "")).strip()
-        if decision == "map_existing":
-            name = str(row.get("canonical_skill_name", "")).strip()
-            if name and skill_identity_key(name) not in seed_identities:
-                selected[skill_name_key(name)] = name
-        elif decision == "split_into_skills":
-            for member in _parse_split_members(row):
-                name = member["skill_name"]
-                if (
-                    member["decision"] == "map_existing"
-                    and skill_identity_key(name) not in seed_identities
-                ):
-                    selected[skill_name_key(name)] = name
-
-    if not selected:
-        return []
-
-    with get_database_connection() as connection:
-        database_rows = connection.execute(
-            "SELECT skill_name, skill_category FROM core.skills"
-        ).fetchall()
-    database_by_key = {
-        skill_name_key(str(name)): (str(name), str(category or "other"))
-        for name, category in database_rows
-    }
-    records: list[tuple[str, str, list[str]]] = []
-    for key in selected:
-        existing = database_by_key.get(key)
-        if existing is not None:
-            name, category = existing
-            records.append((name, category, []))
-        # If the target is neither in the bootstrap nor the old DB, leave it
-        # absent so _build_final_catalog raises its usual actionable error.
-    return records
-
-
 def _queue_rows(
     rows: list[dict[str, object]], decisions: dict[str, dict[str, str]]
 ) -> list[dict[str, object]]:
@@ -814,17 +789,17 @@ def _write_split_checkpoints(
     return output_dir, replacements
 
 
-def _reset_seed_and_record_candidates(
+def _reset_skill_tables_and_record_candidates(
     records: list[tuple[str, str, list[str]]],
     queue_rows: list[dict[str, object]],
 ) -> tuple[int, int, int]:
     with get_database_connection() as connection:
         with connection.transaction():
-            connection.execute("DELETE FROM market.career_skill_stats")
-            connection.execute("DELETE FROM market.job_skills")
-            connection.execute("DELETE FROM core.skill_candidate_reviews")
-            connection.execute("DELETE FROM core.skill_aliases")
-            connection.execute("DELETE FROM core.skills")
+            connection.execute(
+                "TRUNCATE TABLE market.career_skill_stats, market.job_skills, "
+                "core.skill_candidate_reviews, core.skill_aliases, core.skills "
+                "RESTART IDENTITY"
+            )
 
             skill_ids: dict[str, int] = {}
             aliases_to_add: list[tuple[int, str]] = []
@@ -935,7 +910,6 @@ def _validate_posting_coverage(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint-dir", type=Path, default=CHECKPOINT_DIR)
-    parser.add_argument("--seed-file", type=Path, default=PROJECT_ROOT / "config" / "skills.yaml")
     parser.add_argument("--backup-dir", type=Path)
     parser.add_argument("--request-interval", type=float, default=10.0)
     parser.add_argument("--suggest-limit", type=int, default=1000)
@@ -943,20 +917,35 @@ def main() -> None:
     parser.add_argument(
         "--reextract",
         action="store_true",
-        help="Explicitly re-run job-level extraction before rebuilding; default reuses saved checkpoints",
+        help="Run Gemini again for checkpoints not already extracted with the current prompt",
     )
-    parser.add_argument("--force-all-extraction", action="store_true")
+    parser.add_argument(
+        "--force-all-extraction",
+        action="store_true",
+        help="Call Gemini again for every posting, even if it has the current prompt version",
+    )
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="Freshly extract, create a new review CSV, and stop before changing the database",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
     arguments = parser.parse_args()
-    if arguments.apply == arguments.dry_run:
-        parser.error("Choose exactly one of --dry-run or --apply")
+    if sum((arguments.prepare_only, arguments.dry_run, arguments.apply)) != 1:
+        parser.error("Choose exactly one of --prepare-only, --dry-run, or --apply")
     if arguments.request_interval < 0:
         parser.error("--request-interval must be non-negative")
     if arguments.suggest_limit < 0 or arguments.batch_size < 1:
         parser.error("--suggest-limit must be non-negative and --batch-size positive")
     if arguments.force_all_extraction and not arguments.reextract:
         parser.error("--force-all-extraction requires --reextract")
+    if arguments.prepare_only and not arguments.reextract:
+        parser.error("--prepare-only requires --reextract so the new prompt is used")
+    if arguments.apply and arguments.reextract:
+        parser.error(
+            "Prepare and review the fresh extraction first; --apply must reuse that reviewed checkpoint"
+        )
 
     checkpoints = load_skill_checkpoints(arguments.checkpoint_dir)
     total_jobs = sum(len(entries) for _, entries in checkpoints)
@@ -971,24 +960,19 @@ def main() -> None:
         f"Checkpoint runs={len(checkpoints)}, jobs={total_jobs}, "
         f"currently_completed={completed_before}, prior_review_decisions={prior_decisions}"
     )
+
     if arguments.dry_run:
-        bootstrap = load_bootstrap_catalog(arguments.seed_file)
+        empty_catalog: dict[str, dict[str, object]] = {}
         before_rows, before_summary = build_catalog_rebuild_preview(
-            checkpoints, bootstrap, split_composites=False
+            checkpoints, empty_catalog, split_composites=False
         )
         after_rows, after_summary = build_catalog_rebuild_preview(
-            checkpoints, bootstrap, split_composites=True
+            checkpoints, empty_catalog, split_composites=True
         )
         if PREVIEW_FILE.is_file():
             _resume_existing_rows(after_rows, PREVIEW_FILE)
         finalize_preview_suggestions(after_rows)
-        dry_run_seed_records = load_skill_records(arguments.seed_file)
-        dry_run_database_records = _load_reviewed_database_targets(
-            after_rows, dry_run_seed_records
-        )
-        dry_run_catalog, _ = _build_final_catalog(
-            after_rows, [*dry_run_seed_records, *dry_run_database_records]
-        )
+        dry_run_catalog, _ = _build_final_catalog(after_rows, [])
         before_composite_groups = sum(
             "," in str(row.get("candidate_name", ""))
             or ";" in str(row.get("candidate_name", ""))
@@ -1016,9 +1000,6 @@ def main() -> None:
                     "after_composite_split": {
                         "candidate_groups": len(after_rows),
                         "candidate_occurrences": after_summary["candidate_occurrences"],
-                        "matched_component_occurrences": after_summary[
-                            "seed_matched_occurrences"
-                        ],
                         "composite_occurrences_split": after_summary[
                             "composite_occurrences_split"
                         ],
@@ -1050,9 +1031,8 @@ def main() -> None:
         )
         print(
             "Dry run uses saved checkpoints and performs no Gemini calls, "
-            "file writes, or database writes. It reads the current DB only to "
-            "retain explicitly selected map-existing canonicals. Final review count requires "
-            "candidate suggestions and is intentionally not estimated here."
+            "file writes, or database writes. The clean rebuild starts with "
+            "an empty catalog; review decisions determine the proposed names."
         )
         return
 
@@ -1063,52 +1043,107 @@ def main() -> None:
     if PREVIEW_FILE.is_file():
         shutil.copy2(PREVIEW_FILE, backup_dir / "catalog_rebuild_preview_before.csv")
 
-    try:
-        _validate_posting_coverage(checkpoints)
-        if arguments.reextract:
+    if arguments.prepare_only:
+        try:
             updated_checkpoints, extracted_count, fallback_count = _reextract_checkpoints(
                 checkpoints,
                 request_interval=arguments.request_interval,
                 force_all=arguments.force_all_extraction,
                 output_dir=arguments.checkpoint_dir,
             )
-        else:
-            updated_checkpoints = checkpoints
-            extracted_count = fallback_count = 0
-            print("Reusing saved extraction checkpoints; job-level extraction was not run.")
-    except Exception as error:
-        print(
-            f"Checkpoint preparation did not complete; database was not reset. "
-            f"Checkpoint backup: {backup_dir / 'checkpoints'}; error: {error}"
+        except Exception as error:
+            print(
+                f"Fresh extraction did not complete; database was not changed. "
+                f"Prior checkpoints are backed up at {backup_dir / 'checkpoints'}; "
+                f"error: {error}"
+            )
+            raise
+
+        rows, summary = build_catalog_rebuild_preview(updated_checkpoints, {})
+        finalize_preview_suggestions(rows)
+        save_catalog_rebuild_preview(rows, PREVIEW_FILE)
+        suggestion_requests = _suggest_candidates(
+            rows,
+            {},
+            limit=arguments.suggest_limit,
+            batch_size=arguments.batch_size,
+            request_interval=arguments.request_interval,
         )
-        raise
+        if suggestion_requests and len(rows) > 1:
+            if arguments.request_interval:
+                time.sleep(arguments.request_interval)
+            scan_suggested_duplicates(rows, generate=gemini_generate)
+        finalize_preview_suggestions(rows)
+        save_catalog_rebuild_preview(rows, PREVIEW_FILE)
+        print(
+            json.dumps(
+                {
+                    "prepared_only": True,
+                    "database_changed": False,
+                    "backup_dir": str(backup_dir),
+                    "runs": len(updated_checkpoints),
+                    "jobs_reextracted": extracted_count - fallback_count,
+                    "prompt_version": EXTRACTION_PROMPT_VERSION,
+                    "candidate_groups": summary["candidate_groups"],
+                    "suggestion_requests": suggestion_requests,
+                    "ready_for_approval": sum(
+                        row["preview_status"] == "ready_for_approval" for row in rows
+                    ),
+                    "manual_review": sum(
+                        row["preview_status"] == "manual_review" for row in rows
+                    ),
+                    "needs_llm_suggestion": sum(
+                        row["preview_status"] == "needs_llm_suggestion" for row in rows
+                    ),
+                    "review_file": str(PREVIEW_FILE),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        print(
+            "Review the new preview before running --apply. No previous review "
+            "decisions or database catalog names were carried into this preview."
+        )
+        return
 
-    bootstrap = load_bootstrap_catalog(arguments.seed_file)
-    rows, summary = build_catalog_rebuild_preview(updated_checkpoints, bootstrap)
-    if PREVIEW_FILE.exists():
-        _resume_existing_rows(rows, PREVIEW_FILE)
-    finalize_preview_suggestions(rows)
-    save_catalog_rebuild_preview(rows, PREVIEW_FILE)
-    suggestion_requests = _suggest_candidates(
-        rows,
-        bootstrap,
-        limit=arguments.suggest_limit,
-        batch_size=arguments.batch_size,
-        request_interval=arguments.request_interval,
-    )
-    finalize_preview_suggestions(rows)
-    save_catalog_rebuild_preview(rows, PREVIEW_FILE)
+    for _, entries in checkpoints:
+        for index, entry in enumerate(entries, start=1):
+            if (
+                entry.get("extraction_status") != "completed"
+                or entry.get("skill_extraction_prompt_version")
+                != EXTRACTION_PROMPT_VERSION
+            ):
+                parser.error(
+                    f"Checkpoint job {index} is not completed with prompt "
+                    f"{EXTRACTION_PROMPT_VERSION}; run --prepare-only --reextract first"
+                )
 
-    seed_records = load_skill_records(arguments.seed_file)
-    selected_database_records = _load_reviewed_database_targets(rows, seed_records)
-    final_records, decisions = _build_final_catalog(
-        rows, [*seed_records, *selected_database_records]
-    )
+    if not PREVIEW_FILE.is_file():
+        parser.error("Fresh review preview is missing; run --prepare-only first")
+    rows, summary = build_catalog_rebuild_preview(checkpoints, {})
+    _resume_existing_rows(rows, PREVIEW_FILE)
+    finalize_preview_suggestions(rows)
+    unresolved = [
+        row
+        for row in rows
+        if row.get("preview_status") in {"manual_review", "needs_llm_suggestion"}
+        and not str(row.get("review_decision", "")).strip()
+    ]
+    if unresolved:
+        parser.error(
+            f"{len(unresolved)} candidates still need review; database was not reset. "
+            "Finish the preview review and run --apply again."
+        )
+
+    final_records, decisions = _build_final_catalog(rows, [])
+    if not final_records:
+        parser.error("The reviewed rebuild contains no skills; database was not reset")
     queue_rows = _queue_rows(rows, decisions)
-    windows = _backup_and_validate_postings(updated_checkpoints, backup_dir)
+    windows = _backup_and_validate_postings(checkpoints, backup_dir)
     try:
         split_checkpoint_dir, split_occurrence_count = _write_split_checkpoints(
-            updated_checkpoints,
+            checkpoints,
             rows,
             backup_dir / "split_applied_checkpoints",
         )
@@ -1117,7 +1152,7 @@ def main() -> None:
         raise
 
     try:
-        catalog_count, pending_count, auto_resolved_count = _reset_seed_and_record_candidates(
+        catalog_count, pending_count, auto_resolved_count = _reset_skill_tables_and_record_candidates(
             final_records, queue_rows
         )
     except Exception as error:
@@ -1125,7 +1160,7 @@ def main() -> None:
         raise
 
     loaded_by_run: dict[str, dict[str, int]] = {}
-    for run_id, _ in updated_checkpoints:
+    for run_id, _ in checkpoints:
         loaded_by_run[run_id] = load_job_skills_from_run(
             run_id,
             output_dir=split_checkpoint_dir or arguments.checkpoint_dir,
@@ -1136,26 +1171,21 @@ def main() -> None:
         result = refresh_career_skill_stats(start, end, date_basis=basis)
         aggregated.append({"start": start, "end": end, "basis": basis, **result})
 
-    total_fallback_count = sum(
-        bool(entry.get("catalog_rebuild_extraction_fallback"))
-        for _, entries in updated_checkpoints
-        for entry in entries
-    )
     total_reextracted_count = sum(
         bool(entry.get("catalog_rebuild_extracted_at"))
-        for _, entries in updated_checkpoints
+        for _, entries in checkpoints
         for entry in entries
-    ) - total_fallback_count
+    )
 
     print(
         json.dumps(
             {
                 "backup_dir": str(backup_dir),
-                "runs": len(updated_checkpoints),
-                "jobs_reextracted_this_run": extracted_count - fallback_count,
+                "runs": len(checkpoints),
+                "jobs_reextracted_this_run": 0,
                 "jobs_reextracted_total": total_reextracted_count,
-                "jobs_reused_prior_extraction_after_quote_error_total": total_fallback_count,
-                "suggestion_requests": suggestion_requests,
+                "prompt_version": EXTRACTION_PROMPT_VERSION,
+                "suggestion_requests": 0,
                 "candidate_groups": summary["candidate_groups"],
                 "catalog_skills": catalog_count,
                 "auto_resolved_candidate_groups": auto_resolved_count,
@@ -1167,6 +1197,7 @@ def main() -> None:
                 "loaded_by_run": loaded_by_run,
                 "aggregates": aggregated,
                 "database_reset_scope": [*TABLES_TO_BACK_UP],
+                "skill_id_sequences_restarted": True,
             },
             ensure_ascii=False,
             default=_json_default,

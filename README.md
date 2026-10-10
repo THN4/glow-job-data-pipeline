@@ -4,7 +4,7 @@ This repository collects recent Thailand job postings and prepares structured jo
 
 Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
 
-The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Gemini keeps raw results in checkpoints; catalog rebuild suggestions are generated in a separate offline preview, and are not added to PostgreSQL automatically. `config/skills.yaml` supplies the bootstrap catalog for that preview and database seeding. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
+The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Gemini keeps evidence-backed raw results in checkpoints. A clean catalog rebuild re-extracts skills from saved job descriptions, proposes canonical names for review, and only writes the catalog after review and explicit apply. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [project-spec.md](doc/project-spec.md), and branch conventions are in [git-workflow.md](doc/git-workflow.md).
 
 ## Local setup
 
@@ -44,7 +44,7 @@ To extract skills from an existing raw run, set `GEMINI_API_KEY` in `.env` and r
 python -m src.main --replay-run-id 20260928T120000000000Z --extract-skills --skill-limit 2
 ```
 
-Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Run the database migration and `python -m scripts.seed_skill_catalog` first. Gemini reads the cleaned JD and returns raw skill names with supporting evidence. The pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). Unmatched names are never assigned a guessed `skill_id`. New Gemini requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Gemini HTTP 429 currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check your project's active limits in Google AI Studio. To check extraction quality on three hand-written JDs, run `python -m scripts.evaluate_skill_extraction`; the report is saved in `data/processed/skill_evaluation/report.json`. These JSON files are local checkpoints for review, not database records.
+Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Gemini reads the cleaned JD and returns raw skill names with supporting evidence. During normal runtime, the pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). For the clean catalog rebuild, use the dedicated prepare/review/apply flow below instead of seeding skill names from a YAML file. New Gemini requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Gemini HTTP 429 currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check your project's active limits in Google AI Studio. These JSON files are local checkpoints for review, not database records.
 
 ## Local PostgreSQL
 
@@ -54,81 +54,40 @@ Docker Compose reads the `DB_*` settings from `.env` and keeps database files in
 docker compose up -d postgres
 python -m scripts.migrate
 python -m scripts.seed_reference_data
-python -m scripts.seed_skill_catalog
 docker compose exec postgres psql -U glowjob -d glowjob -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('core', 'market', 'system') ORDER BY schema_name;"
 ```
 
 The seed command upserts configured career names and creates one `general` profile for each career, so market postings have a reference profile to point to. The verification command uses the default local database name and user from `.env.example`; adjust them if you changed `DB_NAME` or `DB_USER`. The same commands work in PowerShell and CMD. Migrations are tracked in `system.schema_migrations` and can be safely re-run; already-applied files are skipped. Migration `006` belongs to the earlier database-backed candidate resolver; the current rebuild preview is offline and does not use its review queue. See [migrations/README.md](migrations/README.md) for the migration convention and [the pipeline DBML](doc/schemas/pipeline-schema.dbml) for the pipeline schema plan.
 
-## Load job skills from a checkpoint
+## Clean skill-catalog rebuild
 
-To load skills that already match the current canonical catalog or its confirmed aliases:
+The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The prepare step calls Gemini again for every saved posting, creates concise candidate groups, and asks Gemini to propose canonical names. No database rows change during preparation or review.
 
-```shell
-python -m scripts.migrate
-python -m scripts.seed_reference_data
-python -m scripts.seed_skill_catalog
-python -m scripts.load_job_skills 20260927T172453146903Z
-```
+1. Prepare fresh extraction and a new candidate preview (requires `GEMINI_API_KEY`):
 
-Replace the run ID with a file name under `data/processed/skill_extraction/` (without `.json`). This command does not call Gemini or resolve unknown skill names. Unmatched skills remain in the checkpoint until the catalog rebuild has been reviewed and applied. Completed extractions with no matched skills still load the posting; failed extractions and postings without a provider ID or mapped career remain only in the checkpoint. The loader does not populate `market.job_search_matches` yet. Repeating the command updates existing rows instead of duplicating them. `importance_weight` uses the initial rule in the skill extraction spec. The loader calculates skill, requirement, and proficiency confidence from verified evidence and explicit cues, then calculates overall confidence when all three are available.
+   ```shell
+   python -m scripts.rebuild_skill_catalog_from_checkpoints --prepare-only --reextract --force-all-extraction
+   ```
 
-## Preview a skill-catalog rebuild
+2. Review uncertain candidates and inspect the proposed catalog names:
 
-Build one read-only preview from all saved skill checkpoints and the bootstrap catalog:
+   ```shell
+   python -m scripts.review_skill_catalog_preview --summary
+   python -m scripts.list_skill_catalog_rebuild_names
+   python -m scripts.review_skill_catalog_preview
+   ```
 
-```shell
-python -m scripts.preview_skill_catalog_rebuild
-```
+   The reviewer saves decisions only in `data/processed/skill_candidates/catalog_rebuild_preview.csv`. `ready_for_approval` candidates already have a proposed canonical decision; review `manual_review` and `needs_llm_suggestion` rows, then use `--list-catalog` to inspect selected names. You can map a candidate to a proposed name, create a custom canonical name, ignore it, or split it into components. The reviewer does not write to PostgreSQL.
 
-The command writes `data/processed/skill_candidates/catalog_rebuild_preview.csv`. It deduplicates repeated postings across checkpoint runs, groups exact spelling/case variants, and flags phrases made of the same words in a different order (for example, `AI agent` and `agent AI`). Gemini suggestions are optional and remain proposals:
+3. After reviewing all candidates, apply the rebuild:
 
-```shell
-python -m scripts.preview_skill_catalog_rebuild --suggest-limit 100 --compare-database-catalog
-```
+   ```shell
+   python -m scripts.rebuild_skill_catalog_from_checkpoints --apply
+   ```
 
-`--compare-database-catalog` adds exact canonical/alias matches and approximate name matches from PostgreSQL using read-only queries. Approximate matches are hints for review, not proof that two names mean the same skill. `preview_status=ready_for_approval` means the suggestion passed the preview's evidence and support checks; it has not been written to PostgreSQL. `manual_review` identifies low-confidence, weakly supported, generic, compound, or possibly duplicate candidates. The optional Gemini step also compares proposed names across candidates and marks possible semantic duplicates for review. This preview does not change the database or extraction checkpoints. Suggestions and manual decisions in the existing output CSV are preserved by default; use `--fresh` only when you intentionally want to discard them.
+   Apply creates a timestamped backup, verifies checkpoint coverage for postings in the database, resets only `core.skills`, `core.skill_aliases`, `core.skill_candidate_reviews`, `market.job_skills`, and `market.career_skill_stats` with `RESTART IDENTITY`, then reloads the skill links and career aggregates. Skill IDs start from 1 again. Job postings, careers, companies, and raw job data are preserved. Do not run the apply command until your review is complete. For split decisions, only transformed checkpoint copies used during apply contain the component names; the original extraction checkpoints stay unchanged.
 
-Review candidates interactively, with the current DB catalog, aliases, similar names, LLM suggestion, and posting evidence shown together:
-
-```shell
-python -m scripts.review_skill_catalog_preview
-```
-
-To see the remaining counts without opening the reviewer, run `python -m scripts.review_skill_catalog_preview --summary`. By default it reviews candidates with a pending DB status, other `manual_review` rows, and candidates with an exact DB match, while skipping candidates that already have a resolved status in `core.skill_candidate_reviews`. Pass `--all-candidates` to include unresolved candidates still waiting for an LLM suggestion. Pass `--include-reviewed` only when you intentionally want to revisit a CSV-reviewed or DB-resolved candidate. Later candidates can map to canonical names previously marked `create_new` in the same CSV, which helps group duplicate candidates under one approved spelling. The command saves decisions to the preview CSV only; it does not write the database. See [skill-candidate-review-spec.md](doc/skill-candidate-review-spec.md) for the full process.
-
-To print the full current DB canonical catalog separately from similarity hints, run `python -m scripts.review_skill_catalog_preview --list-catalog`. It includes categories, approved/provisional status, aliases, and whether each canonical name is in the bootstrap catalog.
-
-To recall names you manually marked `create_new` in the review CSV, including whether each has been applied to DB, run `python -m scripts.review_skill_catalog_preview --list-saved-creations`.
-
-## Rebuild the skill catalog from saved jobs
-
-The clean rebuild backs up the skill tables and extraction checkpoints, re-extracts skills from the saved job descriptions, resets only skill catalog/review/link/statistics tables, then reloads matched job skills. It keeps postings, career profiles, and raw source data. High-confidence candidates that pass the preview checks are applied automatically; uncertain candidates stay in `core.skill_candidate_reviews` with their rationale and evidence for manual review. Existing manual decisions in the preview CSV are reused.
-
-Inspect the proposed scope first:
-
-```shell
-python -m scripts.rebuild_skill_catalog_from_checkpoints --dry-run
-```
-
-Run the rebuild after reviewing the dry-run summary:
-
-```shell
-python -m scripts.rebuild_skill_catalog_from_checkpoints --apply
-```
-
-The command writes a timestamped backup under `data/processed/skill_catalog_backups/`. Gemini extraction and suggestions may take several minutes. If Gemini returns evidence that is not an exact quote, the rebuild keeps that job's prior completed extraction and reports the fallback count; invalid catalog mappings and conflicting categories for the same proposed canonical name go to manual review. Other extraction or suggestion errors stop before the database reset. Rerun the same command to resume completed extraction and suggestion work. Pending candidates can be inspected with:
-
-```sql
-SELECT candidate_name, resolution_status, suggested_skill_name,
-       suggested_skill_category, confidence_level, job_count, occurrence_count,
-       rationale, examples
-FROM core.skill_candidate_reviews
-WHERE resolution_status = 'pending_review'
-ORDER BY job_count DESC, candidate_name;
-```
-
-The interactive preview reviewer continues to save manual decisions in the CSV; use the catalog rebuild command again to apply those saved decisions. Split decisions replace the compound extracted phrase with the selected components in a transformed checkpoint copy under the timestamped backup; the original extraction checkpoints remain unchanged. The rebuilt job-skill links use the split components, and the review queue records the candidate as `split_applied`.
+After the catalog is applied, use `python -m scripts.load_job_skills <run_id>` for future checkpoint loads.
 
 ## Aggregate career skill demand
 

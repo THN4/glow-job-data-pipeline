@@ -11,22 +11,16 @@ from src.skills.candidate_suggester import suggest_skill_candidates
 from src.skills.catalog_rebuild_preview import (
     build_catalog_rebuild_preview,
     finalize_preview_suggestions,
-    load_bootstrap_catalog,
     load_skill_checkpoints,
     scan_suggested_duplicates,
     save_catalog_rebuild_preview,
 )
 from src.skills.gemini_client import gemini_generate
-from src.skills.normalizer import (
-    load_skill_catalog,
-    skill_name_key,
-    split_composite_skill_name,
-)
+from src.skills.normalizer import skill_name_key, split_composite_skill_name
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT_DIR = PROJECT_ROOT / "data" / "processed" / "skill_extraction"
-DEFAULT_SEED_FILE = PROJECT_ROOT / "config" / "skills.yaml"
 DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "processed" / "skill_candidates" / "catalog_rebuild_preview.csv"
 SUGGESTION_FORMAT_MAX_ATTEMPTS = 3
 
@@ -150,7 +144,6 @@ def _resume_existing_rows(rows: list[dict[str, object]], output_path: Path) -> N
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint-dir", type=Path, default=DEFAULT_CHECKPOINT_DIR)
-    parser.add_argument("--seed-file", type=Path, default=DEFAULT_SEED_FILE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
         "--resume",
@@ -166,11 +159,6 @@ def main() -> None:
         "--skip-duplicate-scan",
         action="store_true",
         help="Skip the additional Gemini pass that flags possible duplicate proposals",
-    )
-    parser.add_argument(
-        "--compare-database-catalog",
-        action="store_true",
-        help="Add read-only exact/near matches from the current PostgreSQL skill catalog",
     )
     parser.add_argument(
         "--suggest-limit",
@@ -190,13 +178,11 @@ def main() -> None:
             raise ValueError("--batch-size must be at least 1")
         if arguments.request_interval < 0:
             raise ValueError("--request-interval must be zero or greater")
-        catalog = load_bootstrap_catalog(arguments.seed_file)
+        # A clean rebuild starts with no approved names. Candidate resolution
+        # uses the extracted corpus, not the previous database catalog.
+        catalog: dict[str, dict[str, object]] = {}
         checkpoints = load_skill_checkpoints(arguments.checkpoint_dir)
         rows, summary = build_catalog_rebuild_preview(checkpoints, catalog)
-        if arguments.compare_database_catalog:
-            from src.skills.catalog_rebuild_preview import add_database_catalog_comparison
-
-            add_database_catalog_comparison(rows, load_skill_catalog())
         if not arguments.fresh:
             _resume_existing_rows(rows, arguments.output)
         finalize_preview_suggestions(rows)

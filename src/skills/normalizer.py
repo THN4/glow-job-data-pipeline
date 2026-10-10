@@ -152,7 +152,7 @@ def load_skill_catalog() -> dict[str, dict[str, object]]:
         ).fetchall()
     if not skills:
         raise ValueError(
-            "Skill catalog is empty; run python -m scripts.seed_skill_catalog"
+            "Skill catalog is empty; complete the clean catalog rebuild before loading skills"
         )
     return build_skill_catalog(skills, aliases)
 

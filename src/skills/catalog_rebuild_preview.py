@@ -9,10 +9,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
-import yaml
-
 from src.skills.normalizer import (
-    build_skill_catalog,
     match_catalog_skill,
     skill_identity_key,
     skill_name_key,
@@ -68,36 +65,6 @@ _JSON_COLUMNS = {
     "example_evidence",
     "split_skills",
 }
-
-
-def load_bootstrap_catalog(seed_file: Path) -> dict[str, dict[str, object]]:
-    """Read the initial approved catalog without opening a database connection."""
-    with seed_file.open(encoding="utf-8") as source:
-        payload = yaml.safe_load(source)
-    if not isinstance(payload, dict) or not isinstance(payload.get("skills"), dict):
-        raise ValueError("Bootstrap catalog must contain a skills mapping")
-
-    skills: list[tuple[int, str, str | None, str]] = []
-    aliases: list[tuple[int, str]] = []
-    for skill_id, entry in enumerate(payload["skills"].values(), start=1):
-        if not isinstance(entry, dict):
-            raise ValueError("Each bootstrap skill must be a mapping")
-        name = entry.get("skill_name")
-        category = entry.get("skill_category")
-        skill_aliases = entry.get("aliases", [])
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Each bootstrap skill needs a skill_name")
-        if not isinstance(category, str) or not category.strip():
-            raise ValueError(f"Bootstrap skill {name!r} needs a skill_category")
-        if not isinstance(skill_aliases, list) or any(
-            not isinstance(alias, str) or not alias.strip() for alias in skill_aliases
-        ):
-            raise ValueError(f"Bootstrap skill {name!r} has invalid aliases")
-        skills.append((skill_id, name.strip(), category.strip(), "approved"))
-        aliases.extend((skill_id, alias.strip()) for alias in skill_aliases)
-    if not skills:
-        raise ValueError("Bootstrap catalog must define at least one skill")
-    return build_skill_catalog(skills, aliases)
 
 
 def _tokens(name: str) -> tuple[str, ...]:
@@ -179,14 +146,14 @@ def build_catalog_rebuild_preview(
     """Aggregate unique postings, collapse exact word-order variants, and propose review rows."""
     jobs: dict[str, dict[str, Any]] = {}
     failed_jobs: set[str] = set()
-    seed_matched_occurrences = 0
+    catalog_matched_occurrences = 0
     composite_occurrences_split = 0
     split_components_created = 0
     split_components_matched = 0
     split_components_unmatched = 0
-    seed_names: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    catalog_names: dict[tuple[str, ...], set[str]] = defaultdict(set)
     for key, item in catalog.items():
-        seed_names[_family_key(key)].add(str(item["skill_name"]))
+        catalog_names[_family_key(key)].add(str(item["skill_name"]))
 
     for run_id, entries in checkpoints:
         for index, entry in enumerate(entries):
@@ -246,7 +213,7 @@ def build_catalog_rebuild_preview(
                 for name in components:
                     key = skill_name_key(name)
                     if match_catalog_skill(name, catalog) is not None:
-                        seed_matched_occurrences += 1
+                        catalog_matched_occurrences += 1
                         if len(components) > 1:
                             split_components_matched += 1
                         continue
@@ -304,7 +271,7 @@ def build_catalog_rebuild_preview(
             if len(names) > 1
             else "exact_name"
         )
-        possible = sorted(seed_names.get(family, set()), key=str.casefold)
+        possible = sorted(catalog_names.get(family, set()), key=str.casefold)
         titles, evidence = _evidence_examples(data["observations"])
         rows.append(
             {
@@ -373,7 +340,7 @@ def build_catalog_rebuild_preview(
         "checkpoint_runs": len(checkpoints),
         "unique_completed_postings": len(jobs),
         "failed_postings": len(failed_jobs),
-        "seed_matched_occurrences": seed_matched_occurrences,
+        "catalog_matched_occurrences": catalog_matched_occurrences,
         "composite_occurrences_split": composite_occurrences_split,
         "split_components_created": split_components_created,
         "split_components_matched": split_components_matched,

@@ -49,7 +49,7 @@ def test_catalog_rebuild_refuses_composite_phrase_as_single_alias():
         _build_final_catalog([row], [("Python", "programming_language", [])])
 
 
-def test_catalog_rebuild_deduplicates_verified_acronym_bootstrap_entries():
+def test_catalog_rebuild_deduplicates_verified_acronym_initial_records():
     records, decisions = _build_final_catalog(
         [],
         [
