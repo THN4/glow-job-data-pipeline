@@ -1,4 +1,4 @@
-"""Load a saved skill-extraction run into PostgreSQL without API requests."""
+"""Load currently matched skills from a saved run into PostgreSQL."""
 
 import argparse
 

@@ -77,6 +77,27 @@ Table core.skills {
   skill_name text [not null, unique]
   skill_category text
   description text
+  catalog_status text [not null, default: 'approved', note: 'approved or provisional catalog skill']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table core.skill_candidate_reviews [note: 'Legacy automatic candidate-review queue; current rebuild review uses a CSV preview'] {
+  candidate_key text [pk, note: 'Normalized candidate key; case and whitespace variants share a row']
+  candidate_name text [not null]
+  observed_names jsonb [not null]
+  resolution_status text [not null, note: 'mapped_existing, created_provisional, created_approved, ignored, pending_review, or split_applied']
+  resolution_method text [not null, default: 'automatic', note: 'automatic or human']
+  suggestion_decision text
+  confidence_level text
+  suggested_skill_name text
+  suggested_skill_category text
+  resolved_skill_id bigint
+  occurrence_count integer [not null, default: 0]
+  job_count integer [not null, default: 0]
+  examples jsonb [not null]
+  rationale text
+  last_seen_run_id text
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 }
@@ -203,6 +224,7 @@ Table system.ingestion_runs {
 
 Ref: core.career_profiles.career_id > core.careers.career_id
 Ref: core.skill_aliases.skill_id > core.skills.skill_id
+Ref: core.skill_candidate_reviews.resolved_skill_id > core.skills.skill_id
 
 Ref: market.job_postings.company_id > core.companies.company_id
 Ref: market.job_postings.career_profile_id > core.career_profiles.career_profile_id

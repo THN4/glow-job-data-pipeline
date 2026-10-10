@@ -6,3 +6,4 @@ requests_mock
 psycopg[binary]>=3.2,<4.0
 rapidfuzz>=3.14,<4.0
 google-genai>=1.0,<2.0
+pandas

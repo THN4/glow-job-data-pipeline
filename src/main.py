@@ -10,7 +10,7 @@ from pathlib import Path
 from src.config.logging import configure_logging
 from src.config.settings import load_settings
 from src.extract.extract_jobs import extract_jobs
-from src.skills.extractor import extract_skills_for_jobs
+from src.skills.extractor import EXTRACTION_PROMPT_VERSION, extract_skills_for_jobs
 from src.skills.normalizer import load_skill_catalog, normalize_skills_for_jobs
 from src.storage.raw_storage import load_raw_result
 from src.storage.company_review_storage import save_company_match_candidates
@@ -196,10 +196,15 @@ def main(
         for index, entry in enumerate(target_jobs):
             if index < len(saved_jobs) and saved_jobs[index].get(
                 "extraction_status"
-            ) == "completed":
+            ) == "completed" and saved_jobs[index].get(
+                "skill_extraction_prompt_version"
+            ) == EXTRACTION_PROMPT_VERSION:
                 completed_entry = dict(entry)
                 completed_entry["skills"] = saved_jobs[index]["skills"]
                 completed_entry["extraction_status"] = "completed"
+                completed_entry[
+                    "skill_extraction_prompt_version"
+                ] = EXTRACTION_PROMPT_VERSION
                 skill_jobs.append(completed_entry)
                 continue
 

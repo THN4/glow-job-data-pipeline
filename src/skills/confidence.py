@@ -114,6 +114,8 @@ def score_job_skill(
         "exact_canonical": Decimal("1.00"),
         "exact_alias": Decimal("0.95"),
     }[match_method]
+    if skill.get("catalog_status") == "provisional":
+        skill_confidence = Decimal("0.70")
     repeated_name = len(re.findall(_phrase_pattern(raw_name), job_description, re.IGNORECASE)) > 1
 
     requirement_type = skill["requirement_type"]
