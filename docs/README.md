@@ -2,7 +2,9 @@
 
 Documentation is grouped by the domain or work area it describes. The
 `market`, `documents`, and `resume` folders map to packages under `src/`;
-`architecture` and `database` contain cross-domain references.
+`architecture` describes repository boundaries, while `database` documents
+pipeline-owned schema and migration status. The whole-system schema remains in
+the host repository's `docs/schemas/`.
 
 ## File naming
 
@@ -24,7 +26,7 @@ for a folder's landing page or index.
 | [market](market/) | Job-market pipeline, skill extraction, review, and data structures. |
 | [resume](resume/) | Reusable CV/resume parsing, extraction contracts, schemas, and post-processing. |
 | [documents](documents/) | Skill-learning document ingestion and learning-graph design. |
-| [database](database/) | Cross-domain database schema documentation and DBML/DBDiagram files. |
+| [database](database/) | Pipeline-owned schema documentation and DBML/DBDiagram domain views. |
 
 ## Market
 
@@ -47,5 +49,8 @@ and [the package README](../src/resume/README.md) for the boundaries.
 ## Database and architecture
 
 - [Database schema overview](database/database-schema-overview.md)
+- [Pipeline DBML](database/schemas/pipeline-schema.dbml)
+- [Planned knowledge DBML](database/schemas/knowledge-schema.dbml)
+- [Consolidated Glow-Job DBML in the host repo](../../docs/schemas/glow-job.dbml)
 - [Repository architecture and data flow](architecture/repository-architecture.md)
 - [Git workflow](architecture/git-workflow.md)

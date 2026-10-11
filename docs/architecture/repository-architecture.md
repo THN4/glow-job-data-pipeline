@@ -49,7 +49,7 @@ CLI implementations and tests follow the same domain boundaries:
 ```text
 scripts/
 ├── market/       # Job-market ingestion, skill review, and aggregation commands
-├── database/     # Cross-domain migrations and schema operations
+├── database/     # Shared ordered migrations and data-pipeline schema operations
 ├── resume/       # Direct CV extraction and backend API-flow client
 └── documents/    # Reserved for learning-document commands
 
@@ -64,6 +64,10 @@ Run commands with their namespaced module paths, such as
 `python -m scripts.market.run_pipeline` or
 `python -m scripts.database.migrate`. Resume CLI commands include
 `python -m scripts.resume.extract` and `python -m scripts.resume.try_api`.
+The migration command loads SQL files from this sub-repository's
+`migrations/versions/` and the host repository's `migrations/versions/`, then
+applies them in filename order against the shared `system.schema_migrations`
+history.
 
 ## Market data flow
 

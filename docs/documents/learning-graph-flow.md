@@ -4,7 +4,7 @@
 
 This document describes the planned knowledge workflow that follows the market pipeline. It uses canonical names from `core.skills` to connect the domains. The market workflow answers *which skills the job market requests*; the learning graph answers *which skills should be learned first, and what sources support that order*. The fact that many jobs mention both Python and Apache Airflow does not prove that Python is a prerequisite for Airflow.
 
-The knowledge workflow is **not implemented in this repository**. The `knowledge.*` tables appear only in the [combined DBML](../database/schemas/glow-job.dbml) and [database schema overview](../database/database-schema-overview.md). There is no migration or document-ingestion pipeline for them yet. This file describes a plan, not current system behavior.
+The knowledge workflow is **not implemented in this repository**. Its tables are described in the [knowledge domain DBML](../database/schemas/knowledge-schema.dbml) and the [consolidated Glow-Job DBML](../../../docs/schemas/glow-job.dbml). There is no migration or document-ingestion pipeline for them yet. This file describes a plan, not current system behavior.
 
 ```text
 Market: JSearch → job skills → career skill demand

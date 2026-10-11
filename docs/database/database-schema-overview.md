@@ -4,29 +4,43 @@
 
 This document separates the database objects implemented by this repository's
 migrations from the broader Glow-Job schema proposed for the host application.
-The SQL migration files in `migrations/versions/` are the source of truth for
-what this repository currently creates. The DBML/DBDiagram files are design
-references and may describe planned application or knowledge-domain tables
-that are not created by these migrations.
+The SQL migration files in `migrations/versions/` define the pipeline-owned
+objects. The host repository's `migrations/versions/` adds the application
+schema to the same migration history. The pipeline DBML/DBDiagram files are
+domain design references and may include planned objects not created by these
+migrations. The consolidated whole-system DBML and application schema view are
+maintained in the host repository's `docs/schemas/` folder; they are not
+duplicated here.
 
-The current pipeline uses PostgreSQL. Its migrations create three schemas:
+The current shared PostgreSQL database contains these schemas after migrations
+`001`–`008` are applied:
 
 ```text
-core    Shared reference data and the skill catalog
-market  Job postings, extracted skills, and market aggregates
-system  Ingestion and schema-migration bookkeeping
+app      Accounts, resume profiles, career goals, and roadmaps
+core     Shared reference data and the skill catalog
+market   Job postings, extracted skills, and market aggregates
+system   Ingestion, AI-run, and schema-migration bookkeeping
 ```
 
-The `app` and `knowledge` schemas shown in the combined Glow-Job diagrams are
-future design areas. This repository currently has no migrations or processing
-implementation for user accounts, resumes, roadmaps, learning documents,
-embeddings, or skill dependencies. See the [learning-graph design](../documents/learning-graph-flow.md)
-and [repository architecture](../architecture/repository-architecture.md) for
-the documented boundaries.
+The host repository now contains a versioned migration for the `app` schema.
+This repository's migration runner applies it as part of the shared ordered
+history. The `knowledge` schema remains a future design area with no migration
+or processing implementation for learning documents, embeddings, or skill
+dependencies. See the [learning-graph design](../documents/learning-graph-flow.md) and
+[repository architecture](../architecture/repository-architecture.md) for the
+documented boundaries.
 
 ## 2. Current schema map
 
 ```text
+app
+├── users, user_profiles, resumes, resume_extractions
+├── user_educations, user_experiences, user_skills, user_skill_evidence
+├── user_career_goals, user_certifications
+├── roadmaps, roadmap_steps, roadmap_tasks
+├── user_roadmap_progress, user_task_progress
+└── job_applications, application_feedback, interview_sessions, interview_feedback
+
 core
 ├── companies
 ├── careers
@@ -43,13 +57,18 @@ market
 
 system
 ├── ingestion_runs
+├── ai_runs
 └── schema_migrations
 ```
 
-For the full pipeline-oriented database model, see
-[pipeline-schema.dbml](schemas/pipeline-schema.dbml). For the broader target
-Glow-Job model, see [glow-job.dbml](schemas/glow-job.dbml). Apply migrations
-with `python -m scripts.database.migrate`; see the [migration guide](../../migrations/README.md).
+For the pipeline-owned database model, see
+[pipeline-schema.dbml](schemas/pipeline-schema.dbml). The planned knowledge
+domain has its own [knowledge-schema.dbml](schemas/knowledge-schema.dbml).
+For the consolidated Glow-Job view and application schema, see the host
+repository's [glow-job.dbml](../../../docs/schemas/glow-job.dbml) and
+[app-schema.dbml](../../../docs/schemas/app-schema.dbml). Apply migrations
+with `python -m scripts.database.migrate`; see the
+[migration guide](../../migrations/README.md).
 
 ## 3. Domain responsibilities
 
@@ -158,19 +177,21 @@ are in the [skill-candidate review guide](../market/skill-candidate-review-guide
 | `005_add_posted_at_status.sql` | Adds publication-date quality, `first_seen_at`, and aggregate date basis. |
 | `006_add_automatic_skill_candidate_resolution.sql` | Adds provisional catalog status and the legacy candidate-review table. |
 | `007_add_split_applied_candidate_status.sql` | Adds the `split_applied` status to the legacy candidate-review table. |
+| `008_create_app_profile_and_roadmap.sql` (host repository) | Creates app onboarding, profile, resume, goal, roadmap, and application tables plus `system.ai_runs`. |
 
-Migration files are applied in order by `python -m scripts.database.migrate`.
-Successful versions are tracked in `system.schema_migrations`; applied
-migrations are skipped on later runs.
+Migration files from this repository and the host repository are applied in
+filename order by `python -m scripts.database.migrate`. Successful versions
+are tracked in `system.schema_migrations`; applied migrations are skipped on
+later runs.
 
-## 7. Future Glow-Job schemas
+## 7. App and future knowledge schemas
 
-The combined schema diagrams include proposed `app` tables for accounts,
-profiles, resumes, user skills, roadmaps, progress, and applications, plus
-`knowledge` tables for learning sources, chunks, skill dependencies, and
-learning modules. These are target designs only. They are not created by the
-current migration set and must not be treated as live database tables until
-their migrations and domain workflows are implemented.
+The app tables support accounts, profiles, resumes, user skills, career goals,
+roadmaps, progress, and applications. Their domain view is stored in the host
+repository. Migration `008` defines these tables, but they exist in a database
+only after that migration is applied. The `knowledge` tables for learning
+sources, chunks, skill dependencies, and learning modules remain design-only;
+their domain view is stored in this repository.
 
 The `embedding` field in the conceptual knowledge model assumes a PostgreSQL
 vector extension or another vector-store design; this repository does not
