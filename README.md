@@ -54,10 +54,10 @@ Docker Compose reads the `DB_*` settings from `.env` and keeps database files in
 docker compose up -d postgres
 python -m scripts.database.migrate
 python -m scripts.market.seed_reference_data
-docker compose exec postgres psql -U glowjob -d glowjob -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('core', 'market', 'system') ORDER BY schema_name;"
+docker compose exec postgres psql -U glowjob -d glowjob -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('app', 'core', 'market', 'system') ORDER BY schema_name;"
 ```
 
-The seed command upserts configured career names and creates one `general` profile for each career, so market postings have a reference profile to point to. The verification command uses the default local database name and user from `.env.example`; adjust them if you changed `DB_NAME` or `DB_USER`. The same commands work in PowerShell and CMD. Migrations are tracked in `system.schema_migrations` and can be safely re-run; already-applied files are skipped. Migration `006` belongs to the earlier database-backed candidate resolver; the current rebuild preview is offline and does not use its review queue. See [migrations/README.md](migrations/README.md) for the migration convention and [the pipeline DBML](docs/database/schemas/pipeline-schema.dbml) for the pipeline schema plan.
+The seed command upserts configured career names and creates one `general` profile for each career, so market postings have a reference profile to point to. The verification command uses the default local database name and user from `.env.example`; adjust them if you changed `DB_NAME` or `DB_USER`. The same commands work in PowerShell and CMD. Migrations are tracked in `system.schema_migrations` and can be safely re-run; already-applied files are skipped. The runner applies both the pipeline migration directory and the host repository's root migration directory. Migration `008` creates the app schema only when applied; see the [host migration guide](../migrations/README.md). Migration `006` belongs to the earlier database-backed candidate resolver; the current rebuild preview is offline and does not use its review queue. See [migrations/README.md](migrations/README.md) for the pipeline migration convention and [the pipeline DBML](docs/database/schemas/pipeline-schema.dbml) for the pipeline schema plan.
 
 ## Clean skill-catalog rebuild
 

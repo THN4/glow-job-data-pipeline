@@ -1,6 +1,6 @@
 Project glow_job_data_pipeline {
   database_type: 'PostgreSQL'
-  Note: 'Pipeline-only view of the whole-system schema. Includes pipeline-owned core reference data, market data, and ingestion tracking; excludes app and knowledge product domains. This DBML is a design artifact and does not create or migrate tables.'
+  Note: 'Pipeline-owned schema view for shared core reference data, market data, and ingestion tracking. The consolidated whole-system view is maintained in the host repository docs/schemas/glow-job.dbml. This DBML is a design artifact and does not create or migrate tables.'
 }
 
 Enum requirement_type {

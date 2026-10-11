@@ -4,13 +4,29 @@ from pathlib import Path
 
 from src.shared.db.database import get_database_connection
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MIGRATIONS_DIR = PROJECT_ROOT / "migrations" / "versions"
+DATA_PIPELINE_ROOT = Path(__file__).resolve().parents[2]
+HOST_REPOSITORY_ROOT = DATA_PIPELINE_ROOT.parent
+MIGRATION_DIRECTORIES = [DATA_PIPELINE_ROOT / "migrations" / "versions"]
+if (HOST_REPOSITORY_ROOT / "docs" / "schemas" / "glow-job.dbml").is_file():
+    MIGRATION_DIRECTORIES.append(HOST_REPOSITORY_ROOT / "migrations" / "versions")
+
+
+def _get_migration_files() -> list[Path]:
+    """Load pipeline and host-repository migrations into one ordered history."""
+    migration_files = sorted(
+        migration_file
+        for directory in MIGRATION_DIRECTORIES
+        for migration_file in directory.glob("*.sql")
+    )
+    versions = [migration_file.name for migration_file in migration_files]
+    if len(versions) != len(set(versions)):
+        raise ValueError("Migration filenames must be unique across repositories")
+    return migration_files
 
 
 def apply_migrations() -> list[str]:
     """Apply each pending migration once and return the applied file names."""
-    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    migration_files = _get_migration_files()
     if not migration_files:
         return []
 
