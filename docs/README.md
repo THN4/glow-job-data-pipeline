@@ -22,7 +22,7 @@ for a folder's landing page or index.
 |---|---|
 | [architecture](architecture/) | Repository layout and Git workflow. |
 | [market](market/) | Job-market pipeline, skill extraction, review, and data structures. |
-| [resume](resume/) | CV/resume domain documentation. This domain is currently scaffolded. |
+| [resume](resume/) | Reusable CV/resume parsing, extraction contracts, schemas, and post-processing. |
 | [documents](documents/) | Skill-learning document ingestion and learning-graph design. |
 | [database](database/) | Cross-domain database schema documentation and DBML/DBDiagram files. |
 
@@ -35,8 +35,10 @@ for a folder's landing page or index.
 
 ## Resume
 
-The resume package is a scaffold. See [resume domain notes](resume/README.md)
-and [the package README](../src/resume/README.md) for its planned boundaries.
+The resume domain currently provides reusable processing modules consumed by
+the host backend. Its API orchestration, persistence, and CLI workflows remain
+in the host backend or are planned follow-up work. See [resume domain notes](resume/README.md)
+and [the package README](../src/resume/README.md) for the boundaries.
 
 ## Documents
 

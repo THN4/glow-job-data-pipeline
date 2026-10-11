@@ -1,1 +1,1 @@
-"""Normalization of resume fields against shared domain vocabularies."""
+"""Resume-specific derived fields and skill-name normalization helpers."""

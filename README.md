@@ -1,6 +1,6 @@
 # Glow-Job Data Pipeline
 
-This repository provides data-processing packages for Glow-Job. The implemented market domain collects Thailand job postings and prepares structured job-market data; resume processing and learning-document ingestion are scaffolded as separate domains for future work. The intended market flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, PostgreSQL loading, and career-level aggregation. See [Repository architecture](docs/architecture/repository-architecture.md) for the domain boundaries and full data flow.
+This repository provides data-processing packages for Glow-Job. The market domain collects Thailand job postings and prepares structured job-market data. The resume domain contains reusable CV parsing, extraction providers, contracts, schemas, and post-processing used by the backend, plus a direct extraction CLI and an API-flow client. Learning-document ingestion is still scaffolded. The intended market flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, PostgreSQL loading, and career-level aggregation. See [Repository architecture](docs/architecture/repository-architecture.md) for the domain boundaries and full data flow.
 
 Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
 
@@ -130,16 +130,16 @@ The command prints the run ID and per-stage counts. If skill extraction is incom
 ## Layout
 
 - `src/market/`: implemented job-market ingestion, cleaning, normalization, skill extraction, loading, and aggregation
-- `src/resume/`: scaffold for CV/resume parsing, extraction, normalization, and schemas
+- `src/resume/`: reusable CV/resume parsing, extraction contracts, schemas, and normalization
 - `src/documents/`: scaffold for skill-learning document ingestion, parsing, chunking, extraction, and embeddings
 - `src/shared/`: reusable skill-name normalization, LLM and database adapters, utilities, and schemas
 - `config/`: editable career and pipeline settings
 - `data/raw/`, `data/processed/`: local data directories, excluded from Git
 - `migrations/`: database migrations
 - `scripts/market/`, `scripts/database/`: domain CLI tools
-- `tests/market/`, `tests/shared/`: implemented test suites; `tests/resume/` and `tests/documents/` are reserved for future behavior
+- `tests/market/`, `tests/shared/`, `tests/resume/`: tests for implemented pipeline domains; `tests/documents/` is reserved for future behavior
 - `docs/`: documentation grouped by domain and cross-domain topic
 
-Use `python -m scripts.market.main` for market extraction/replay and `python -m scripts.market.run_pipeline` for the full market workflow with loading and aggregation. Implementations remain under `src.market`; future resume and document workflows will have their own namespaced entry points.
+Use `python -m scripts.market.main` for market extraction/replay and `python -m scripts.market.run_pipeline` for the full market workflow with loading and aggregation. Run `python -m scripts.resume.extract <cv-file>` from this repository root for direct CV extraction, or `python -m scripts.resume.try_api <cv-file>` to exercise a running backend API. Implementations remain under `src.market` and `src.resume`; document workflows will have their own namespaced entry points.
 
 CLI implementations and tests are grouped by domain under `scripts/` and `tests/`. Run commands with their domain-qualified module paths, such as `python -m scripts.market.run_pipeline`. See [script guide](scripts/README.md) and [test guide](tests/README.md).
