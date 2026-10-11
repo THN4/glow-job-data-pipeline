@@ -17,11 +17,11 @@ src/
 │   ├── config/                   # Market pipeline settings and logging
 │   ├── main.py                   # Market extraction/replay CLI implementation
 │   └── pipeline.py               # Full market workflow orchestration
-├── resume/                       # Planned CV/resume processing domain
-│   ├── parsing/
-│   ├── extraction/
-│   ├── normalization/
-│   └── schemas/
+├── resume/                       # Reusable CV/resume processing domain
+│   ├── parsing/                  # PDF/image preprocessing
+│   ├── extraction/               # Prompt and provider contracts
+│   ├── normalization/            # Skill aliases and derived profile facts
+│   └── schemas/                  # Validated extraction/profile schemas
 ├── documents/                    # Planned learning-document/RAG preparation domain
 │   ├── ingestion/
 │   ├── parsing/
@@ -37,10 +37,10 @@ src/
     └── schemas/
 ```
 
-`market` is the only domain with an end-to-end implementation today. The
-`resume` and `documents` packages are scaffolds: their package boundaries and
-contracts are documented, but parsing, extraction, embeddings, and vector-store
-behavior have not been implemented.
+`market` has the end-to-end job-market pipeline. `resume` provides reusable
+parsing, extraction contracts, schemas, and post-processing, while API/job
+orchestration and persistence remain in the host backend. `documents` remains
+a scaffold; embeddings and vector-store behavior have not been implemented.
 
 ## Script and test layout
 
@@ -50,19 +50,20 @@ CLI implementations and tests follow the same domain boundaries:
 scripts/
 ├── market/       # Job-market ingestion, skill review, and aggregation commands
 ├── database/     # Cross-domain migrations and schema operations
-├── resume/       # Reserved for resume commands
+├── resume/       # Direct CV extraction and backend API-flow client
 └── documents/    # Reserved for learning-document commands
 
 tests/
 ├── market/       # Market pipeline behavior and fixtures
 ├── shared/       # Reusable adapters and normalization
-├── resume/       # Reserved for resume behavior
+├── resume/       # Resume parsing, schemas, post-processing, and provider tests
 └── documents/    # Reserved for document-processing behavior
 ```
 
 Run commands with their namespaced module paths, such as
 `python -m scripts.market.run_pipeline` or
-`python -m scripts.database.migrate`.
+`python -m scripts.database.migrate`. Resume CLI commands include
+`python -m scripts.resume.extract` and `python -m scripts.resume.try_api`.
 
 ## Market data flow
 

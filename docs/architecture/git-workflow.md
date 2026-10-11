@@ -2,7 +2,8 @@
 
 > **Status:** This is a recommended branch and review workflow, not a live
 > report of the current checkout or branch names. The repository currently
-> implements the market pipeline; resume and document domains are scaffolds.
+> implements the market pipeline and reusable Resume processing modules;
+> document ingestion remains a scaffold.
 > Keep application features such as user accounts, roadmaps, and progress
 > tracking in the host `glow-job` repository.
 
