@@ -40,14 +40,14 @@
       {
         "name": "job_postings",
         "schemaName": "market",
-        "x": 435.39570509335374,
-        "y": 402.8992100171665
+        "x": 1222.2911229380795,
+        "y": 1091.7051713438518
       },
       {
         "name": "job_search_matches",
         "schemaName": "market",
-        "x": 810.0936071104697,
-        "y": 858.5074428651683
+        "x": 879.8461095232988,
+        "y": 867.2265056667719
       },
       {
         "name": "job_skills",
@@ -66,6 +66,12 @@
         "schemaName": "system",
         "x": 440.6681875195799,
         "y": 1088.9425508399897
+      },
+      {
+        "name": "skill_candidate_reviews",
+        "schemaName": "core",
+        "x": 555.2392578125,
+        "y": 420
       }
     ],
     "tableGroupCollapseStates": [],
