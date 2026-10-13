@@ -2,6 +2,71 @@
 
 This repository provides data-processing packages for Glow-Job. The market domain collects Thailand job postings and prepares structured job-market data. The resume domain contains reusable CV parsing, extraction providers, contracts, schemas, and post-processing used by the backend, plus a direct extraction CLI and an API-flow client. Learning-document ingestion is still scaffolded. The intended market flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, PostgreSQL loading, and career-level aggregation. See [Repository architecture](docs/architecture/repository-architecture.md) for the domain boundaries and full data flow.
 
+## How the Market and Resume pipelines work together
+
+The two pipelines share infrastructure and a skill vocabulary, but process
+different source data and have different owners for database writes.
+
+```mermaid
+flowchart LR
+    subgraph Market[Market pipeline — data-pipeline]
+        J[JSearch job postings] --> M[Validate, clean, deduplicate, map careers]
+        M --> ME[Gemini extracts skills from job descriptions]
+        ME --> MC[Checkpoint and deterministic catalog matching]
+        MC --> ML[Load job postings and matched skills]
+        ML --> MA[Aggregate market demand]
+    end
+
+    subgraph Resume[Resume pipeline — shared extractor plus host Backend]
+        CV[User CV upload] --> RP[Backend upload/job orchestration]
+        RP --> PRE[Resume preprocessor in data-pipeline]
+        PRE --> RE[Gemini extracts structured profile]
+        RE --> POST[Resume postprocess and evidence/review flags]
+        POST --> CAT[Backend matches technical skills/tools]
+        CAT --> UI[User reviews and confirms profile]
+        UI --> SAVE[Backend persists confirmed anonymous profile]
+    end
+
+    subgraph Shared[Shared components]
+        GEM[Gemini client/model configuration]
+        NORM[Shared deterministic skill normalizer]
+        CORE[(PostgreSQL core.skills and core.skill_aliases)]
+    end
+    GEM -.used by.-> ME
+    GEM -.used by.-> RE
+    CORE --> MC
+    CORE --> CAT
+    NORM -.matching logic.-> MC
+    NORM -.matching logic.-> CAT
+    ML --> MARKETDB[(PostgreSQL market schema)]
+    SAVE --> APPDB[(PostgreSQL app schema when configured)]
+```
+
+**What intersects:** both paths use the shared Gemini model/client configuration
+and the same deterministic skill-name matching rules. They can read the same
+`core.skills` / `core.skill_aliases` catalog, so a CV label and a job-posting
+label can resolve to the same canonical skill ID. Catalog matching does not
+create catalog entries from CVs.
+
+**What stays separate:** Market extracts employer requirements from JDs,
+upserts postings and matched posting-skill links into `market.*`, then
+aggregates demand. Resume extracts a person's profile from a CV. The reusable
+Resume package in `data-pipeline/src/resume` does not connect to PostgreSQL;
+the host Backend owns uploads, job status, catalog lookup, user confirmation,
+and profile persistence to `app.*` when database settings are configured. In
+local development without DB settings, the Backend can use its JSON profile
+repository. A CV does not add a skill to the shared catalog or to market
+statistics. See the detailed [Market flow](docs/market/market-pipeline-flow.md)
+and [Resume flow](docs/resume/resume-pipeline-flow.md).
+
+| Shared area | Market pipeline | Resume pipeline |
+|---|---|---|
+| Gemini | Extracts skills and evidence from job descriptions. | Extracts a structured candidate profile from CV pages. |
+| Extraction contract | Market-specific skill requirements and evidence. | Resume-specific education, experience, projects, skills, and other profile facts. |
+| Skill normalization | Matches extracted JD labels to canonical skills/aliases before loading. | Backend matches only technical skills and tools; preserves the CV label and flags unmatched values. |
+| Database catalog | Reads `core.skills` and `core.skill_aliases`; writes matched IDs into `market.job_skills`. | Reads the same catalog through the Backend adapter; does not create catalog entries. |
+| Final output | Job postings, job-skill links, and aggregated market demand. | User-reviewed profile; Backend saves the confirmed profile to `app.*` when DB is configured. |
+
 Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
 
 The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Gemini keeps evidence-backed raw results in checkpoints. A clean catalog rebuild re-extracts skills from saved job descriptions, proposes canonical names for review, and only writes the catalog after review and explicit apply. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [market-pipeline-spec.md](docs/market/market-pipeline-spec.md), and branch conventions are in [git-workflow.md](docs/architecture/git-workflow.md).
@@ -139,6 +204,11 @@ The command prints the run ID and per-stage counts. If skill extraction is incom
 - `scripts/market/`, `scripts/database/`: domain CLI tools
 - `tests/market/`, `tests/shared/`, `tests/resume/`: tests for implemented pipeline domains; `tests/documents/` is reserved for future behavior
 - `docs/`: documentation grouped by domain and cross-domain topic
+
+For the full, stage-by-stage process and each pipeline's completion boundary,
+see the [Market pipeline flow](docs/market/market-pipeline-flow.md),
+[Resume pipeline flow](docs/resume/resume-pipeline-flow.md), and the
+[documentation index](docs/README.md).
 
 Use `python -m scripts.market.main` for market extraction/replay and `python -m scripts.market.run_pipeline` for the full market workflow with loading and aggregation. Run `python -m scripts.resume.extract <cv-file>` from this repository root for direct CV extraction, or `python -m scripts.resume.try_api <cv-file>` to exercise a running backend API. Implementations remain under `src.market` and `src.resume`; document workflows will have their own namespaced entry points.
 
