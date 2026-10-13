@@ -3,7 +3,6 @@
 Everything here is pure (no I/O) and takes ``today``
 as a parameter, so it is deterministic in tests.
 
-  * skill proficiency: explicit (the CV states it) or inferred (how long the skill was used);
   * skill evidence: where the CV shows the skill in use;
   * profile facts: years of experience, current job title, education level, suggested status.
 """
@@ -15,7 +14,6 @@ import unicodedata
 from datetime import date
 
 from ..schemas.cv_extraction import (
-    Certification,
     CvProfile,
     Derived,
     Education,
@@ -28,15 +26,9 @@ from ..schemas.cv_extraction import (
 )
 from .skill_aliases import skill_spellings
 
-LEVEL_ORDER: list[Proficiency] = ["unknown", "beginner", "intermediate", "advanced", "expert"]
-
-# Inference never goes above "advanced": "expert" has to be stated by the CV itself.
-BEGINNER_BELOW_MONTHS = 24
-ADVANCED_FROM_MONTHS = 60
-UNDATED_PROJECT_MONTHS = 2
 MAX_EVIDENCE = 3
 
-# --------------------------------------------------------------------------- months of use
+# --------------------------------------------------------------------------- skill evidence
 
 
 def _month_index(value: str, is_end: bool) -> int | None:
@@ -128,23 +120,7 @@ def snippet_with_skill(text: str, name: str, limit: int = 200) -> str | None:
     return None
 
 
-# --------------------------------------------------------------------------- skill proficiency + evidence
-
-
-def _max_level(a: Proficiency, b: Proficiency) -> Proficiency:
-    return a if LEVEL_ORDER.index(a) >= LEVEL_ORDER.index(b) else b
-
-
-def infer_level(months: int, certified: bool) -> Proficiency:
-    if months <= 0:
-        level: Proficiency = "unknown"
-    elif months < BEGINNER_BELOW_MONTHS:
-        level = "beginner"
-    elif months < ADVANCED_FROM_MONTHS:
-        level = "intermediate"
-    else:
-        level = "advanced"
-    return _max_level(level, "intermediate") if certified else level
+# --------------------------------------------------------------------------- skill evidence
 
 
 def _mentions(item_text: str | None, pattern: re.Pattern[str]) -> bool:
@@ -155,14 +131,11 @@ def skill_usage(
     name: str,
     experiences: list[Experience],
     projects: list[Project],
-    today: date,
-) -> tuple[int, list[SkillEvidence]]:
-    """Months the skill was used, and evidence items, from the experiences/projects that list or mention it."""
+) -> list[SkillEvidence]:
+    """Evidence items from experiences/projects that list or mention this skill."""
     spellings = skill_spellings(name)
     pattern = _spelling_pattern(spellings)
     canonical = {s.lower() for s in spellings}
-    intervals: list[tuple[int, int]] = []
-    extra_months = 0
     evidence: list[SkillEvidence] = []
 
     def uses(technologies: list[str], *texts: str | None) -> bool:
@@ -170,27 +143,14 @@ def skill_usage(
 
     for x in experiences:
         if uses(x.technologies, x.description, *x.highlights):
-            iv = interval(x.start_date, x.end_date, x.is_current, today)
-            if iv:
-                intervals.append(iv)
             if len(evidence) < MAX_EVIDENCE:
                 quote = next((h for h in x.highlights if _mentions(h, pattern)), None) or x.description or x.title
                 evidence.append(SkillEvidence(evidence_type="experience", item_id=x.id, text=(quote or "")[:200] or None))
     for p in projects:
         if uses(p.technologies, p.description):
-            iv = interval(p.start_date, p.end_date, False, today)
-            if iv:
-                intervals.append(iv)
-            else:
-                extra_months += UNDATED_PROJECT_MONTHS
             if len(evidence) < MAX_EVIDENCE:
                 evidence.append(SkillEvidence(evidence_type="project", item_id=p.id, text=(p.description or p.name or "")[:200] or None))
-    return union_months(intervals) + extra_months, evidence
-
-
-def is_certified(name: str, certifications: list[Certification]) -> bool:
-    pattern = _spelling_pattern(skill_spellings(name))
-    return any(_mentions(c.name, pattern) or _mentions(c.issuer, pattern) for c in certifications)
+    return evidence
 
 
 # --------------------------------------------------------------------------- profile facts
