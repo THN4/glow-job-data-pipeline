@@ -3,9 +3,6 @@
 import re
 import unicodedata
 
-from src.shared.db.database import get_database_connection
-
-
 _REQUIREMENT_RANK = {"unknown": 0, "optional": 1, "preferred": 2, "required": 3}
 _COMPOSITE_SEPARATOR = re.compile(r"[,;]")
 _LEADING_CONJUNCTION = re.compile(r"^(?:and|or)\s+", re.IGNORECASE)
@@ -140,6 +137,10 @@ def build_skill_catalog(
 
 def load_skill_catalog() -> dict[str, dict[str, object]]:
     """Read the seeded catalog once for a normalization batch."""
+    # Keep the pure matching functions usable by consumers (such as the Resume
+    # API) that do not install or configure the market database runtime.
+    from src.shared.db.database import get_database_connection
+
     with get_database_connection() as connection:
         skills = connection.execute(
             """

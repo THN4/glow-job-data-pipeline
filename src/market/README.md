@@ -23,6 +23,9 @@ end to end at this time.
    matched skills into PostgreSQL.
 5. Refresh the selected career-statistics date window.
 
+See the detailed [Market end-to-end flow](../../docs/market/market-pipeline-flow.md)
+for the input/output and persistence boundary of each stage.
+
 `src.market.main.main` performs job processing and optional skill extraction.
 Use `python -m scripts.market.main` for that CLI, or
 `python -m scripts.market.run_pipeline` for the full market workflow including

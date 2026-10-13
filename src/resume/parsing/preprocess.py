@@ -1,6 +1,6 @@
-"""Turns an uploaded file into model input: extracted text (preferred) or page images.
+"""Turns an uploaded file into model input: extracted text and/or page images.
 
-Qwen can't read PDF files, so everything becomes text or JPEG pages.
+PDFs are classified page by page so mixed text/scanned documents retain both forms of content.
 This module does not own upload handling or job lifecycle.
 """
 
@@ -17,7 +17,7 @@ import pymupdf
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..errors import ResumeProcessingError
-from ..extraction.contracts import PageImage, PreparedCv
+from ..extraction.contracts import PageImage, PreparedCv, PreparedPage
 
 ALLOWED_MIME = ("application/pdf", "image/jpeg", "image/png", "image/webp")
 
@@ -41,6 +41,10 @@ class Limits:
     max_pdf_pages: int = 10
     max_image_pages: int = 4
 
+    def __post_init__(self) -> None:
+        if self.max_pdf_pages < 1 or self.max_image_pages < 1:
+            raise ValueError("PDF and image page limits must be at least one.")
+
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -59,15 +63,14 @@ def prepare_cv(data: bytes, limits: Limits = Limits()) -> PreparedCv:
     mime = detect_mime(data)
     if mime == "application/pdf":
         return _prepare_pdf(data, limits)
-    return PreparedCv(kind="images", page_count=1, images=[_to_model_jpeg(data)])
+    image = _to_model_jpeg(data)
+    return PreparedCv(kind="images", page_count=1, images=[image], pages=[PreparedPage(page_number=1, image=image)])
 
 
-def is_usable_text(pages: list[str]) -> bool:
-    """Text is usable when there is enough of it and it is not mostly broken glyphs."""
-    if not pages:
-        return False
-    visible = "".join("".join(pages).split())
-    if len(visible) / len(pages) < MIN_CHARS_PER_PAGE:
+def is_usable_page_text(text: str) -> bool:
+    """A page is text-readable only when it contains enough clean extracted text."""
+    visible = "".join(text.split())
+    if len(visible) < MIN_CHARS_PER_PAGE:
         return False
     return len(_GARBLED.findall(visible)) / len(visible) <= MAX_GARBLED_RATIO
 
@@ -91,18 +94,44 @@ def _prepare_pdf(data: bytes, limits: Limits) -> PreparedCv:
 
         # sort=False keeps the PDF's own reading order, so multi-column layouts stay column by column
         # (sort=True sorts purely by position and interleaves the columns line by line).
-        pages = [_clean_text(doc[i].get_text("text", sort=False)) for i in range(page_count)]
-        if is_usable_text(pages):
-            text = "\n\n".join(f"--- page {i + 1} ---\n{p.strip()}" for i, p in enumerate(pages))
-            return PreparedCv(kind="text", page_count=page_count, text=text)
+        page_texts = [_clean_text(doc[i].get_text("text", sort=False)) for i in range(page_count)]
+        text_pages = [i for i, text in enumerate(page_texts) if is_usable_page_text(text)]
+        image_pages = [i for i in range(page_count) if i not in text_pages]
+        selected_image_pages = image_pages[: limits.max_image_pages]
+        omitted_pages = [i + 1 for i in image_pages[limits.max_image_pages :]]
 
-        # Scanned (or badly encoded) PDF: render pages to images for a vision model.
-        render_count = min(page_count, limits.max_image_pages)
+        selected_images = {i: _render_page(doc[i]) for i in selected_image_pages}
+        pages: list[PreparedPage] = []
+        for i, text in enumerate(page_texts):
+            if i in text_pages:
+                pages.append(PreparedPage(page_number=i + 1, text=text.strip()))
+            elif i in selected_images:
+                image = selected_images[i]
+                pages.append(PreparedPage(page_number=i + 1, image=image))
+
+        text = "\n\n".join(
+            f"--- page {page.page_number} ---\n{page.text}" for page in pages if page.text is not None
+        )
+        images = [page.image for page in pages if page.image is not None]
+        has_text = bool(text_pages)
+        has_images = bool(images)
+        kind = "text" if has_text and not has_images else "images" if has_images and not has_text else "mixed"
         warnings = []
-        if render_count < page_count:
-            warnings.append(f"Only the first {render_count} of {page_count} scanned pages were analyzed.")
-        images = [_render_page(doc[i]) for i in range(render_count)]
-        return PreparedCv(kind="images", page_count=page_count, images=images, warnings=warnings)
+        if omitted_pages:
+            omitted_list = ", ".join(str(page) for page in omitted_pages)
+            warnings.append(
+                f"Scanned content on PDF page(s) {omitted_list} was omitted because the image-page limit "
+                f"is {limits.max_image_pages}; the extraction is partial."
+            )
+        return PreparedCv(
+            kind=kind,
+            page_count=page_count,
+            text=text,
+            images=images,
+            pages=pages,
+            omitted_pages=omitted_pages,
+            warnings=warnings,
+        )
     except ResumeProcessingError:
         raise
     except Exception as err:

@@ -9,11 +9,11 @@ import re
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from typing import Callable
 from urllib.parse import urlparse
 
-from .derive import derive_profile, explicit_level_from_text, infer_level, is_certified, skill_usage, snippet_with_skill
+from .derive import derive_profile, explicit_level_from_text, skill_usage, snippet_with_skill
 from ..schemas.cv_extraction import (
     Certification,
     Confidence,
@@ -30,12 +30,23 @@ from ..schemas.cv_extraction import (
     Project,
     SkillEvidence,
     TechnicalSkill,
+    ToolItem,
+)
+from ..versions import (
+    EXTRACTION_SCHEMA_VERSION,
+    PROCESSING_VERSION,
+    PROFILE_SCHEMA_VERSION,
+    PROMPT_VERSION,
 )
 from .skill_aliases import normalize_skill_name, skill_spellings
 
 _RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
 _DATE_RE = re.compile(r"^(\d{4})(?:-(0[1-9]|1[0-2]))?$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_GITHUB_REFERENCE_RE = re.compile(
+    r"^\s*github\s*:\s*([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:/[A-Za-z0-9_.-]+)?)\s*$",
+    re.IGNORECASE,
+)
 _MIN_YEAR = 1950
 _BE_OFFSET = 543  # Buddhist Era -> Common Era
 _BE_MIN, _BE_MAX = 2450, 2650
@@ -48,19 +59,35 @@ class BuildContext:
     duration_ms: int
     input_kind: InputKind
     page_count: int | None
+    is_partial: bool = False
     #: Extracted CV text for the grounding check. None for image inputs or the mock.
     source_text: str | None = None
+    #: Text-readable pages, even in a mixed PDF; used only for explicit skill-level evidence.
+    skill_level_text: str | None = None
     warnings: list[str] = field(default_factory=list)
-    #: Injected for deterministic tests (duration of ongoing jobs, inferred skill levels). Defaults to today.
+    #: Injected for deterministic date calculations (for example, ongoing job duration). Defaults to today.
     today: date | None = None
+    provider: str = "unknown"
+    prompt_version: str = PROMPT_VERSION
+    profile_schema_version: int = PROFILE_SCHEMA_VERSION
+    extraction_schema_version: int = EXTRACTION_SCHEMA_VERSION
+    processing_version: str = PROCESSING_VERSION
 
 
 def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
+    today = ctx.today or date.today()
     warnings = [*ctx.warnings, *ex.warnings]
     ground = make_grounder(ctx.source_text) if ctx.source_text else None
+    ungrounded_visual_input = ctx.input_kind in ("images", "mixed") and ctx.provider != "mock"
+    if ungrounded_visual_input:
+        warnings.append(
+            "Image-based CV content cannot be checked with text grounding; review the extracted profile fields."
+        )
 
     def grounded(conf: Confidence, *needles: str | None) -> Confidence:
         """Downgrades confidence to 'low' when a key string is missing from the CV text."""
+        if ungrounded_visual_input:
+            return _min(conf, "medium")
         if ground and any(n and not ground(n) for n in needles):
             return "low"
         return conf
@@ -89,7 +116,7 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
     # --- education --------------------------------------------------------------------
     education = []
     for e in ex.education:
-        dates, d_conf = fix_range(e.start_date, e.end_date, e.is_current)
+        dates, d_conf = fix_range(e.start_date, e.end_date, e.is_current, today)
         conf = _min(grounded(e.confidence, e.institution), d_conf)
         education.append(
             _with_meta(Education, "edu", {**e.model_dump(), **dates, "confidence": conf}, e.institution is None)
@@ -103,7 +130,7 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
     # --- experience -------------------------------------------------------------------
     experience = []
     for x in ex.experience:
-        dates, d_conf = fix_range(x.start_date, x.end_date, x.is_current)
+        dates, d_conf = fix_range(x.start_date, x.end_date, x.is_current, today)
         conf = _min(grounded(x.confidence, x.organization, x.title), d_conf)
         experience.append(
             _with_meta(
@@ -117,14 +144,23 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
     # --- projects ---------------------------------------------------------------------
     projects = []
     for pr in ex.projects:
-        dates, d_conf = fix_range(pr.start_date, pr.end_date, False)
+        dates, d_conf = fix_range(pr.start_date, pr.end_date, False, today)
         url = None
+        description = pr.description
         if pr.url:
-            candidate = _with_scheme(pr.url)
+            reference_match = _GITHUB_REFERENCE_RE.fullmatch(pr.url)
+            candidate = (
+                f"https://github.com/{reference_match.group(1)}"
+                if reference_match
+                else _with_scheme(pr.url)
+            )
             if _valid_url(candidate):
                 url = candidate
             else:
-                warnings.append(f'Ignored an invalid project URL: "{pr.url}".')
+                reference = pr.url.strip()
+                if reference and (not description or reference.casefold() not in description.casefold()):
+                    description = f"{description.rstrip()}\nProject reference: {reference}" if description else reference
+                warnings.append(f'Kept non-URL project reference as text: "{reference}".')
         conf = _min(grounded(pr.confidence, pr.name), d_conf)
         projects.append(
             _with_meta(
@@ -135,6 +171,7 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
                     "start_date": dates["start_date"],
                     "end_date": dates["end_date"],
                     "url": url,
+                    "description": description,
                     "technologies": _normalize_list(pr.technologies),
                     "confidence": conf,
                 },
@@ -145,14 +182,14 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
     # --- certifications, tools, languages ---------------------------------------------
     certifications = []
     for c in ex.certifications:
-        cert_date = valid_date(c.date)
+        cert_date = valid_date(c.date, today)
         date_ok = _date_ok(c.date, cert_date)
         conf = _min(grounded(c.confidence, c.name), "high" if date_ok else "low")
         certifications.append(
             _with_meta(Certification, "cert", {**c.model_dump(), "date": cert_date, "confidence": conf}, c.name is None)
         )
     tools = [
-        _with_meta(NamedItem, "tool", {**t, "confidence": grounded(t["confidence"], t["name"])})
+        _with_meta(ToolItem, "tool", {**t, "confidence": grounded(t["confidence"], t["name"])})
         for t in _dedupe_by_name(ex.tools)
     ]
     languages = [
@@ -160,26 +197,41 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
         for d in _dedupe_by_name(ex.languages)
     ]
 
-    # --- skills: normalized, deduplicated, with proficiency + evidence -------------------
-    today = ctx.today or date.today()
+    # --- skills: normalized, deduplicated, with source-supported level + evidence ---------
     skill_map: dict[str, dict] = {}
     for sk in ex.technical_skills:
-        name = normalize_skill_name(sk.name)
+        # Keep catalog-style alias resolution out of resume extraction. Only
+        # normalize Unicode/whitespace for display, while retaining the exact
+        # model label separately for review and later matching.
+        raw_name = sk.name
+        name = " ".join(unicodedata.normalize("NFKC", raw_name).split())
         if not name:
             continue
         conf: Confidence = sk.confidence
+        if ungrounded_visual_input:
+            conf = _min(conf, "medium")
         if ground and not any(ground(sp) for sp in skill_spellings(sk.name)):
             conf = "low"
-        prev = skill_map.get(name.lower())
+        key = name.casefold()
+        prev = skill_map.get(key)
         if prev is None or _RANK[conf] > _RANK[prev["confidence"]]:
-            skill_map[name.lower()] = {**sk.model_dump(), "name": name, "confidence": conf}
+            skill_map[key] = {
+                **sk.model_dump(),
+                "name": name,
+                "raw_name": raw_name,
+                "confidence": conf,
+            }
         elif sk.proficiency != "unknown" and prev["proficiency"] == "unknown":
             prev["proficiency"] = sk.proficiency
 
     technical_skills = []
     for d in skill_map.values():
         technical_skills.append(
-            _with_meta(TechnicalSkill, "sk", _enrich_skill(d, ctx.source_text, experience, projects, certifications, today))
+            _with_meta(
+                TechnicalSkill,
+                "sk",
+                _enrich_skill(d, ctx.source_text, experience, projects, ctx.skill_level_text),
+            )
         )
 
     profile = CvProfile(
@@ -199,12 +251,18 @@ def build_result(ex: CvExtraction, ctx: BuildContext) -> CvExtractionResult:
         profile=profile,
         meta=CvExtractionMeta(
             extraction_id=ctx.extraction_id,
+            provider=ctx.provider,
             model=ctx.model,
+            prompt_version=ctx.prompt_version,
+            profile_schema_version=ctx.profile_schema_version,
+            extraction_schema_version=ctx.extraction_schema_version,
+            processing_version=ctx.processing_version,
             duration_ms=ctx.duration_ms,
             input_kind=ctx.input_kind,
             cached=False,
             detected_language=ex.detected_language,
             page_count=ctx.page_count,
+            is_partial=ctx.is_partial,
             warnings=list(dict.fromkeys(warnings)),
             review_count=count_review(profile),
         ),
@@ -255,28 +313,27 @@ def _enrich_skill(
     source_text: str | None,
     experiences: list[Experience],
     projects: list[Project],
-    certifications: list[Certification],
-    today: date,
+    skill_level_text: str | None = None,
 ) -> dict:
-    """Adds proficiency (explicit or inferred), its basis and evidence to one extracted skill (as a dict)."""
+    """Adds text-supported proficiency and experience/project evidence to a skill."""
     name = d["name"]
-    if source_text:
-        # With the CV text available, the code decides what the CV states: a level the model claims
-        # but the text doesn't show is dropped (hallucination guard).
-        explicit = explicit_level_from_text(source_text, name)
+    level_text = skill_level_text if skill_level_text is not None else source_text
+    if level_text:
+        # When source text is available, only a level explicitly adjacent to the
+        # skill is accepted; unsupported model claims are discarded.
+        explicit = explicit_level_from_text(level_text, name)
     else:
-        explicit = d["proficiency"]  # images / mock: only the model can read the level
+        # Without inspectable text (for example, scanned images), a model
+        # confidence claim alone is not verifiable evidence.
+        explicit = "unknown"
 
-    months, evidence = skill_usage(name, experiences, projects, today)
-    if source_text:
-        quote = snippet_with_skill(source_text, name)
+    evidence = skill_usage(name, experiences, projects)
+    if level_text:
+        quote = snippet_with_skill(level_text, name)
         if quote and not evidence:
             evidence.append(SkillEvidence(evidence_type="resume_text", text=quote))
-    if explicit != "unknown":
-        level, basis = explicit, "explicit"
-    else:
-        level = infer_level(months, is_certified(name, certifications))
-        basis = "inferred" if level != "unknown" else "unknown"
+    level = explicit
+    basis = "explicit" if explicit != "unknown" else "unknown"
     return {**d, "proficiency": level, "proficiency_basis": basis, "evidence": evidence}
 
 
@@ -339,7 +396,7 @@ def normalize_date_format(value: str | None) -> str | None:
     return f"{year}-{month:02d}" if 1 <= month <= 12 else None
 
 
-def valid_date(value: str | None) -> str | None:
+def valid_date(value: str | None, today: date | None = None) -> str | None:
     """Returns the date as 'YYYY'/'YYYY-MM' with a plausible year, else None.
 
     Loose formats are normalized first (see ``normalize_date_format``).
@@ -350,14 +407,15 @@ def valid_date(value: str | None) -> str | None:
     v = normalize_date_format(value)
     if v is None:
         return None
+    reference_date = today or date.today()
     m = _DATE_RE.match(v)
     if not m:
         return None
     year, month = int(m.group(1)), m.group(2)
-    if year > datetime.now().year + 1 and _BE_MIN <= year <= _BE_MAX:
+    if year > reference_date.year + 1 and _BE_MIN <= year <= _BE_MAX:
         year -= _BE_OFFSET
         v = f"{year}-{month}" if month else str(year)
-    return v if _MIN_YEAR <= year <= datetime.now().year + 1 else None
+    return v if _MIN_YEAR <= year <= reference_date.year + 1 else None
 
 
 def _date_ok(original: str | None, result: str | None) -> bool:
@@ -367,11 +425,20 @@ def _date_ok(original: str | None, result: str | None) -> bool:
     return result is not None and result == normalize_date_format(original)
 
 
-def fix_range(start: str | None, end: str | None, is_current: bool) -> tuple[dict, Confidence]:
-    """Validates a start/end range; any problem lowers confidence. Ongoing items never have an end date."""
-    s = valid_date(start)
-    e = None if is_current else valid_date(end)
+def fix_range(
+    start: str | None,
+    end: str | None,
+    is_current: bool,
+    today: date | None = None,
+) -> tuple[dict, Confidence]:
+    """Validates a start/end range; conflicts lower confidence. Ongoing items never have an end date."""
+    s = valid_date(start, today)
+    e = None if is_current else valid_date(end, today)
     ok = _date_ok(start, s) and (is_current or _date_ok(end, e))
+    if is_current and end and end.strip():
+        # Keep the contract invariant (current items have no end date), but do
+        # not silently hide a contradictory end date supplied by the model.
+        ok = False
     if s and e and s[:7] > e[:7]:
         ok = False
     return {"start_date": s, "end_date": e, "is_current": is_current}, ("high" if ok else "low")

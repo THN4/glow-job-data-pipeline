@@ -3,7 +3,7 @@
     python -m scripts.resume.extract path/to/cv.pdf              # full JSON
     python -m scripts.resume.extract path/to/cv.pdf --summary    # compact view laid out like the database tables
 
-Uses EXTRACTOR / LLM_* from .env.
+Uses RESUME_EXTRACTOR and GEMINI_API_KEY from .env; Gemini uses the same model as market extraction.
 """
 
 import asyncio
@@ -45,8 +45,15 @@ async def main(path: str, summary: bool = False) -> int:
             duration_ms=round((t2 - t0) * 1000),
             input_kind=prepared.kind,
             page_count=prepared.page_count,
+            is_partial=bool(prepared.omitted_pages),
             source_text=prepared.text if prepared.kind == "text" and extractor.groundable else None,
+            skill_level_text=(
+                prepared.text
+                if prepared.kind in ("text", "mixed") and extractor.groundable
+                else None
+            ),
             warnings=list(prepared.warnings),
+            provider=getattr(extractor, "provider", extractor.__class__.__name__),
         ),
     )
     if summary:
@@ -67,7 +74,12 @@ def db_view(result) -> str:
     """The extraction laid out like the app.* tables (docs/cv-extraction/08, 09). Read-only preview."""
     p, meta, d = result.profile, result.meta, result.profile.derived
     flag = lambda i: " [REVIEW]" if i.needs_review else ""
-    out = [f"== app.user_profiles   (model: {meta.model}, input: {meta.input_kind}, review items: {meta.review_count})"]
+    out = [
+        f"== app.user_profiles   (provider: {meta.provider}, model: {meta.model}, "
+        f"prompt: {meta.prompt_version}, profile schema: {meta.profile_schema_version}, "
+        f"extraction schema: {meta.extraction_schema_version}, processing: {meta.processing_version}, "
+        f"input: {meta.input_kind}, review items: {meta.review_count})"
+    ]
     out.append(f"   display_name={p.personal.full_name!r}  location={p.personal.location!r}  background_summary={p.summary!r}")
     if d:
         out.append(f"   current_job_title={d.current_job_title!r}  years_experience={d.years_experience}  "

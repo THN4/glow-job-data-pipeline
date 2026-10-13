@@ -15,16 +15,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from ..versions import PROFILE_SCHEMA_VERSION
+
 Confidence = Literal["high", "medium", "low"]
 Source = Literal["cv", "user"]
 SkillCategory = Literal["language", "framework", "database", "cloud", "devops", "data", "other"]
 EmploymentType = Literal["full-time", "part-time", "internship", "freelance", "contract", "volunteer"]
 CertificationKind = Literal["certification", "award", "competition", "workshop", "activity"]
 DetectedLanguage = Literal["en", "th", "mixed"]
-InputKind = Literal["text", "images"]
+InputKind = Literal["text", "images", "mixed"]
 # Same scale as market.career_skill_stats.target_level / user_skills.proficiency_level in the database design.
 Proficiency = Literal["unknown", "beginner", "intermediate", "advanced", "expert"]
-# "explicit" = the CV states the level; "inferred" = estimated from how long the skill was used; "unknown" = no signal.
+# "explicit" = the CV states the level; "unknown" = no supported level. "inferred" remains readable for old stored profiles.
 ProficiencyBasis = Literal["explicit", "inferred", "unknown"]
 EducationLevel = Literal["high_school", "diploma", "associate", "bachelor", "master", "doctorate", "other"]
 SuggestedStatus = Literal["student", "employed", "career_switcher"]
@@ -46,7 +48,7 @@ class AiModel(Camel):
 
 
 # --------------------------------------------------------------------------- AI-facing items
-# Kept flat and small so local models follow them. Every field is required (nullable, not optional).
+# Every field is required (nullable, not optional) for predictable structured output.
 
 
 class LinkItem(AiModel):
@@ -176,15 +178,34 @@ class SkillEvidence(Camel):
     text: str | None = None  # short quote / description
 
 
+class CatalogMatch(Camel):
+    """Read-only match against the shared core skill catalog."""
+
+    status: Literal["matched", "unmatched"]
+    skill_id: int | None = None
+    canonical_name: str | None = None
+    match_method: Literal["exact_canonical", "exact_alias"] | None = None
+
+
 class TechnicalSkill(TechnicalSkillAi, _Meta):
     model_config = ConfigDict(extra="ignore")
+    # Preserve the exact model/CV label before safe display cleanup. Optional
+    # so profiles saved with the previous schema remain readable.
+    raw_name: str | None = None
     # Added by the backend (optional, so older clients / saved profiles stay valid).
     proficiency_basis: ProficiencyBasis = "unknown"
     evidence: list[SkillEvidence] = Field(default_factory=list)
+    # Populated by the backend catalog resolver; extraction never guesses this.
+    catalog_match: CatalogMatch | None = None
 
 
 class NamedItem(NamedItemAi, _Meta):
     model_config = ConfigDict(extra="ignore")
+
+
+class ToolItem(NamedItem):
+    # Tools may also be technical skills in the shared Market catalog.
+    catalog_match: CatalogMatch | None = None
 
 
 class Experience(ExperienceAi, _Meta):
@@ -215,7 +236,7 @@ class Derived(Camel):
 
 
 class CvProfile(Camel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1] = PROFILE_SCHEMA_VERSION
     personal: Personal
     summary: str | None
     education: list[Education]
@@ -224,19 +245,25 @@ class CvProfile(Camel):
     experience: list[Experience]
     projects: list[Project]
     certifications: list[Certification]
-    tools: list[NamedItem]
+    tools: list[ToolItem]
     languages: list[Language]
     derived: Derived | None = None
 
 
 class CvExtractionMeta(Camel):
     extraction_id: str
+    provider: str
     model: str
+    prompt_version: str
+    profile_schema_version: int
+    extraction_schema_version: int
+    processing_version: str
     duration_ms: int
     input_kind: InputKind
     cached: bool
     detected_language: DetectedLanguage
     page_count: int | None
+    is_partial: bool = False
     warnings: list[str]
     review_count: int
 

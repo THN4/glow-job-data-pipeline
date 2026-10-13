@@ -6,7 +6,6 @@ from src.resume.normalization.derive import (
     derive_profile,
     education_level_of,
     explicit_level_from_text,
-    infer_level,
     interval,
     snippet_with_skill,
     union_months,
@@ -54,15 +53,6 @@ def test_overlapping_periods_are_counted_once():
     assert union_months([(0, 12), (6, 18), (30, 36)]) == 24
 
 
-def test_inference_thresholds_cap_at_advanced_and_certification_lifts_to_intermediate():
-    assert infer_level(0, False) == "unknown"
-    assert infer_level(6, False) == "beginner" and infer_level(23, False) == "beginner"
-    assert infer_level(24, False) == "intermediate" and infer_level(59, False) == "intermediate"
-    assert infer_level(60, False) == "advanced" and infer_level(240, False) == "advanced"  # never "expert"
-    assert infer_level(3, True) == "intermediate" and infer_level(100, True) == "advanced"
-    assert infer_level(0, True) == "intermediate"
-
-
 # --------------------------------------------------------------------------- explicit levels in the text
 
 
@@ -107,13 +97,13 @@ def test_explicit_level_from_text_wins_and_unfounded_model_levels_are_dropped():
     assert (skills["Docker"].proficiency, skills["Docker"].proficiency_basis) == ("unknown", "unknown")  # model claim not in CV: dropped
 
 
-def test_model_level_is_trusted_when_there_is_no_text_to_check():
+def test_model_level_is_not_treated_as_evidence_when_there_is_no_text_to_check():
     ex = extraction(technicalSkills=[skill("Python", "advanced")], experience=[], projects=[])
     sk = build_result(ex, ctx(input_kind="images", source_text=None)).profile.technical_skills[0]
-    assert (sk.proficiency, sk.proficiency_basis) == ("advanced", "explicit")
+    assert (sk.proficiency, sk.proficiency_basis) == ("unknown", "unknown")
 
 
-def test_level_is_inferred_from_months_of_use_and_evidence_is_linked():
+def test_experience_and_projects_provide_evidence_but_not_inferred_levels():
     ex = extraction(
         technicalSkills=[skill("React"), skill("Docker"), skill("Express")],
         experience=[
@@ -128,29 +118,29 @@ def test_level_is_inferred_from_months_of_use_and_evidence_is_linked():
     skills = {s.name: s for s in res.profile.technical_skills}
     exp_ids = {x.title: x.id for x in res.profile.experience}
 
-    assert (skills["React"].proficiency, skills["React"].proficiency_basis) == ("intermediate", "inferred")  # 40 months
+    assert (skills["React"].proficiency, skills["React"].proficiency_basis) == ("unknown", "unknown")
     assert skills["React"].evidence[0].evidence_type == "experience"
     assert skills["React"].evidence[0].item_id == exp_ids["Web Dev"]
     assert "storefronts" in skills["React"].evidence[0].text  # the highlight that mentions it
 
-    assert (skills["Express"].proficiency, skills["Express"].proficiency_basis) == ("beginner", "inferred")  # 3 months
+    assert (skills["Express"].proficiency, skills["Express"].proficiency_basis) == ("unknown", "unknown")
     assert (skills["Docker"].proficiency, skills["Docker"].proficiency_basis) == ("unknown", "unknown")
     assert skills["Docker"].evidence[0].evidence_type == "resume_text"  # only in the skills list
     assert skills["Docker"].evidence[0].item_id is None
 
 
-def test_a_certification_lifts_an_unused_skill():
+def test_a_certification_does_not_imply_skill_proficiency():
     ex = extraction(technicalSkills=[skill("AWS")], experience=[], projects=[], certifications=[
         dict(kind="certification", name="AWS Certified Cloud Practitioner", issuer="Amazon", date="2024", detail=None, confidence="high")])
     sk = build_result(ex, ctx(source_text="AWS Certified Cloud Practitioner 2024")).profile.technical_skills[0]
-    assert (sk.proficiency, sk.proficiency_basis) == ("intermediate", "inferred")
+    assert (sk.proficiency, sk.proficiency_basis) == ("unknown", "unknown")
 
 
-def test_undated_projects_add_a_little_time():
+def test_undated_project_is_evidence_but_does_not_imply_proficiency():
     ex = extraction(technicalSkills=[skill("Vercel")], experience=[], projects=[
         dict(name="P", description="x", role=None, url=None, startDate=None, endDate=None, technologies=["Vercel"], confidence="high")])
     sk = build_result(ex, ctx()).profile.technical_skills[0]
-    assert (sk.proficiency, sk.proficiency_basis) == ("beginner", "inferred")
+    assert (sk.proficiency, sk.proficiency_basis) == ("unknown", "unknown")
     assert sk.evidence[0].evidence_type == "project"
 
 

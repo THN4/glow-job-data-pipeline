@@ -93,7 +93,9 @@ def mock_extraction() -> CvExtraction:
 class MockExtractor:
     """Returns fixture data without any network call. Used for tests, CI and frontend work."""
 
+    provider = "mock"
     name = "mock"
+    cache_identity = {"fixture_version": "1"}
     groundable = False
 
     def __init__(self, delay_ms: int = 3000):

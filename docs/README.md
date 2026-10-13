@@ -23,13 +23,14 @@ for a folder's landing page or index.
 | Folder | Contents |
 |---|---|
 | [architecture](architecture/) | Repository layout and Git workflow. |
-| [market](market/) | Job-market pipeline, skill extraction, review, and data structures. |
-| [resume](resume/) | Reusable CV/resume parsing, extraction contracts, schemas, and post-processing. |
+| [market](market/) | End-to-end job-market pipeline, skill extraction, review, and data structures. |
+| [resume](resume/) | End-to-end CV extraction flow, reusable extraction contracts, and the host Backend boundary. |
 | [documents](documents/) | Skill-learning document ingestion and learning-graph design. |
 | [database](database/) | Pipeline-owned schema documentation and DBML/DBDiagram domain views. |
 
 ## Market
 
+- [End-to-end Market pipeline flow](market/market-pipeline-flow.md)
 - [Project specification](market/market-pipeline-spec.md)
 - [Pipeline data structures](market/pipeline-data-structures.md)
 - [Skill extraction specification](market/skill-extraction-spec.md)
@@ -37,10 +38,12 @@ for a folder's landing page or index.
 
 ## Resume
 
-The resume domain currently provides reusable processing modules consumed by
-the host backend. Its API orchestration, persistence, and CLI workflows remain
-in the host backend or are planned follow-up work. See [resume domain notes](resume/README.md)
-and [the package README](../src/resume/README.md) for the boundaries.
+- [End-to-end Resume pipeline flow](resume/resume-pipeline-flow.md)
+- [Resume domain notes](resume/README.md)
+
+The reusable extractor is in `src/resume`; upload/job orchestration, catalog
+lookup, user confirmation, and profile storage are owned by the host Backend.
+See [the package README](../src/resume/README.md) for implementation boundaries.
 
 ## Documents
 
