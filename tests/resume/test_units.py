@@ -14,7 +14,7 @@ from src.resume.normalization.postprocess import (
     normalize_date_format,
     valid_date,
 )
-from src.resume.parsing.preprocess import Limits, detect_mime, is_usable_text, prepare_cv
+from src.resume.parsing.preprocess import Limits, detect_mime, is_usable_page_text, prepare_cv
 from src.resume.schemas.cv_extraction import (
     CvExtraction,
     CvExtractionResult,
@@ -122,7 +122,7 @@ def test_scanned_pages_are_limited_with_a_warning():
         out.insert_pdf(src)
     p = prepare_cv(out.tobytes(), Limits(max_pdf_pages=10, max_image_pages=2))
     assert p.kind == "images" and len(p.images) == 2
-    assert "first 2 of 6" in p.warnings[0]
+    assert "PDF page(s) 3, 4, 5, 6" in p.warnings[0]
 
 
 def test_corrupt_and_encrypted_pdfs_are_unreadable():
@@ -155,11 +155,11 @@ def test_soft_hyphens_next_to_digits_become_dashes():
     assert _clean_text("infra­structure") == "infra­structure"  # inside a word: untouched
 
 
-def test_is_usable_text():
-    assert not is_usable_text([])
-    assert not is_usable_text(["  "])
-    assert not is_usable_text(["�" * 200])
-    assert is_usable_text(["Experienced developer " * 10])
+def test_is_usable_page_text():
+    assert not is_usable_page_text("")
+    assert not is_usable_page_text("  ")
+    assert not is_usable_page_text("�" * 200)
+    assert is_usable_page_text("Experienced developer " * 10)
 
 
 # --------------------------------------------------------------------------- postprocess
@@ -178,14 +178,19 @@ def with_skills(skills: list[dict]) -> CvExtraction:
     return CvExtraction.model_validate(data)
 
 
-def test_skills_are_normalized_and_deduplicated_keeping_highest_confidence():
+def test_profile_skills_keep_raw_labels_and_only_dedupe_case_variants():
     ex = with_skills([
         {"name": "reactjs", "category": "framework", "confidence": "low", "proficiency": "unknown"},
         {"name": "React", "category": "framework", "confidence": "high", "proficiency": "unknown"},
+        {"name": "REACT", "category": "framework", "confidence": "high", "proficiency": "unknown"},
         {"name": "postgres", "category": "database", "confidence": "high", "proficiency": "unknown"},
     ])
     skills = build_result(ex, ctx()).profile.technical_skills
-    assert [(s.name, s.confidence) for s in skills] == [("React", "high"), ("PostgreSQL", "high")]
+    assert [(s.name, s.raw_name, s.confidence) for s in skills] == [
+        ("reactjs", "reactjs", "low"),
+        ("React", "React", "high"),
+        ("postgres", "postgres", "high"),
+    ]
 
 
 def test_review_flags_for_low_confidence_and_missing_key_fields():
@@ -247,7 +252,8 @@ def test_dates():
     assert valid_date("1900") is None and valid_date(None) is None
     assert fix_range("2024", "2020", False)[1] == "low"
     assert fix_range("2020", "2024", False)[1] == "high"
-    assert fix_range("2023-06", "2024", True)[0]["end_date"] is None
+    current_dates, current_confidence = fix_range("2023-06", "2024", True)
+    assert current_dates["end_date"] is None and current_confidence == "low"
     assert fix_range("sometime in 2023", None, True)[1] == "low"
 
 
