@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,20 +13,11 @@ class ResumeModelSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    EXTRACTOR: Literal["mock", "openai-compatible", "ollama"] = "mock"
+    RESUME_EXTRACTOR: Literal["mock", "gemini"] = Field(
+        default="mock", validation_alias=AliasChoices("RESUME_EXTRACTOR", "EXTRACTOR")
+    )
     MOCK_DELAY_MS: int = 3000
-    LLM_BASE_URL: str | None = None
-    LLM_MODEL: str | None = None
-    LLM_API_KEY: str = "not-needed"
-    LLM_TIMEOUT_MS: int = 180_000
-    LLM_VISION: bool = True
-    LLM_NUM_CTX: int = 16384
-    LLM_THINK: bool = False
-    MAX_PDF_PAGES: int = 10
-    MAX_IMAGE_PAGES: int = 4
-
-    @model_validator(mode="after")
-    def _check_llm(self) -> "ResumeModelSettings":
-        if self.EXTRACTOR in ("openai-compatible", "ollama") and not (self.LLM_BASE_URL and self.LLM_MODEL):
-            raise ValueError(f"EXTRACTOR={self.EXTRACTOR} requires LLM_BASE_URL and LLM_MODEL")
-        return self
+    GEMINI_API_KEY: str | None = None
+    RESUME_GEMINI_TIMEOUT_MS: int = 180_000
+    MAX_PDF_PAGES: int = Field(default=10, ge=1)
+    MAX_IMAGE_PAGES: int = Field(default=4, ge=1)
