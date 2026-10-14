@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:0.8.7-pg16-bookworm
     environment:
       POSTGRES_DB: ${DB_NAME:-glowjob}
       POSTGRES_USER: ${DB_USER:-glowjob}
