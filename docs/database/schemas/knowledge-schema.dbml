@@ -1,6 +1,6 @@
 Project glow_job_knowledge_view {
   database_type: 'PostgreSQL'
-  Note: 'Planned knowledge-domain design only. These tables are not implemented by current data-pipeline migrations. core.skills is owned by the pipeline schema and appears below only as an external reference.'
+  Note: 'Partial implementation: migrations create knowledge_sources, knowledge_chunks, and knowledge_chunk_skills. skill_dependencies and learning_modules remain planned. core.skills is owned by the pipeline schema and appears below only as an external reference.'
 }
 
 Enum dependency_type {
@@ -45,17 +45,26 @@ Table knowledge.knowledge_sources {
 Table knowledge.knowledge_chunks {
   chunk_id bigint [pk, increment]
   source_id bigint [not null]
-  skill_id bigint
   topic text
   chunk_index integer [not null]
   content text [not null]
   metadata jsonb
   embedding_model text
-  embedding vector [note: 'Requires the vector extension; dimension depends on the chosen model']
+  embedding vector(768) [note: 'Gemini Embedding 2, output_dimensionality=768; requires pgvector']
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
     (source_id, chunk_index) [unique, name: 'uq_knowledge_chunks_source_index']
+  }
+}
+
+Table knowledge.knowledge_chunk_skills {
+  chunk_id bigint [not null]
+  skill_id bigint [not null]
+
+  indexes {
+    (chunk_id, skill_id) [pk]
+    (skill_id) [name: 'ix_knowledge_chunk_skills_skill_id']
   }
 }
 
@@ -93,7 +102,8 @@ Table knowledge.learning_modules {
 
 Ref: knowledge.knowledge_sources.skill_id > core.skills.skill_id
 Ref: knowledge.knowledge_chunks.source_id > knowledge.knowledge_sources.source_id
-Ref: knowledge.knowledge_chunks.skill_id > core.skills.skill_id
+Ref: knowledge.knowledge_chunk_skills.chunk_id > knowledge.knowledge_chunks.chunk_id
+Ref: knowledge.knowledge_chunk_skills.skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.prerequisite_skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.target_skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.source_id > knowledge.knowledge_sources.source_id

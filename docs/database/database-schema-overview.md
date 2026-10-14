@@ -189,10 +189,9 @@ later runs.
 The app tables support accounts, profiles, resumes, user skills, career goals,
 roadmaps, progress, and applications. Their domain view is stored in the host
 repository. Migration `008` defines these tables, but they exist in a database
-only after that migration is applied. The `knowledge` tables for learning
-sources, chunks, skill dependencies, and learning modules remain design-only;
-their domain view is stored in this repository.
-
-The `embedding` field in the conceptual knowledge model assumes a PostgreSQL
-vector extension or another vector-store design; this repository does not
-currently provision either one.
+only after that migration is applied. The `knowledge` schema is partially
+implemented by pipeline migrations `010`–`013`: pgvector, source and chunk
+tables, and many-to-many chunk-to-skill links. Skill dependencies and learning
+modules remain design-only; their domain view is stored in this repository.
+The embedding field uses the PostgreSQL vector extension enabled by migration
+`010`.

@@ -47,6 +47,7 @@ See [the package README](../src/resume/README.md) for implementation boundaries.
 
 ## Documents
 
+- [Skill knowledge ingestion and RAG specification](documents/skill-knowledge-rag-spec.md)
 - [Learning document and graph flow](documents/learning-graph-flow.md)
 
 ## Database and architecture
