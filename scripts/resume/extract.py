@@ -71,7 +71,7 @@ async def main(path: str, summary: bool = False) -> int:
 
 
 def db_view(result) -> str:
-    """The extraction laid out like the app.* tables (docs/cv-extraction/08, 09). Read-only preview."""
+    """The extraction laid out like the app.* tables (docs/cv-extraction/05, 06). Read-only preview."""
     p, meta, d = result.profile, result.meta, result.profile.derived
     flag = lambda i: " [REVIEW]" if i.needs_review else ""
     out = [
