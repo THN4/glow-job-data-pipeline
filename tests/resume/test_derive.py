@@ -1,4 +1,4 @@
-"""Skill proficiency, evidence and derived profile facts (docs/cv-extraction/09-fields-needed-from-cv.md)."""
+"""Skill proficiency, evidence and derived profile facts (docs/cv-extraction/06-profile-data-requirements.md)."""
 
 from datetime import date
 
