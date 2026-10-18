@@ -2,9 +2,39 @@
 
 ## 1. Purpose and status
 
+**Delivery update (2026-10-18):** dependency preparation uses only the user's
+[prepared document corpus](skill-dependency-review-guide.md), followed by one-key
+human approve/reject and an approved-only cited export for the AI team. The current
+corpus has 48 sources / 525 chunks / 24 mapped target skills. Catalog-wide generation
+from general model knowledge was outside the clarified scope and is not the review
+queue. Document-derived learning recommendations are labeled inferred; only
+directly supported claims may be explicit prerequisites.
+
+A bounded skill-knowledge preview now combines skill-filtered semantic retrieval
+with shared Gemini text review and exact citation/quote checks. Pipeline-owned
+`src/documents/retrieval/skill_context.py` supplies typed Context for explicitly
+selected main skills. Foundation skills without mapped teaching content remain
+mentions with an unavailable-content notice. Topic outlines are separated from
+instructional passages. The host CLI/guide are in glow-job `scripts/rag` and
+`docs/rag/skill-knowledge-context-guide.md`; retrieval evaluation, production policy
+calibration and application endpoints remain open. The host's Agent Context assembler
+now combines saved knowledge with User/Goal/Market inputs and a deduplicated evidence
+registry; its status remains `preview_pending_policies`, not a generated Roadmap.
+
 This document defines the MVP scope for collecting curated skill documents, preparing searchable chunks, and supplying cited context to Glow-Job's roadmap agent.
 
-**Current status:** The current reviewed demo corpus has been crawled from bounded YAML sources, reviewed, parsed from approved HTML, chunked, loaded into the knowledge tables, and embedded with Gemini Embedding 2 (768 dimensions) in PostgreSQL/pgvector. A command-line semantic-search prototype is available with optional canonical-skill filtering and a configurable result limit. The current prototype does not yet evaluate retrieval quality systematically, apply a relevance threshold or reranker, assemble the final context window, or generate cited answers with an LLM. Those are the next RAG tasks. Evidence-backed dependency extraction and review, learning-module curation, and roadmap-agent integration also remain future work.
+**Current status:** The current reviewed demo corpus has been crawled from bounded YAML sources, reviewed, parsed from approved HTML, chunked, loaded into the knowledge tables, and embedded with Gemini Embedding 2 (768 dimensions) in PostgreSQL/pgvector. The original `search_chunks` command returns ranked excerpts. The separate bounded knowledge-Context service now supports shared Gemini text review, instructional/outline distinctions, exact citations, and explicit content gaps. Systematic retrieval evaluation and calibrated production thresholds remain open. Learning-module curation and roadmap-agent integration remain future work; the dependency-review workflow is described below.
+
+An initial [dependency proposal/review CLI](skill-dependency-review-guide.md) now
+supports bounded document evidence, checkpointed human decisions, explicit apply
+and verified lookup with ordering-cycle checks. Migrations 014/015 were applied
+to the development DB on 2026-10-18. The prepared-document queue is fully reviewed:
+18 approved, 5 rejected, 0 pending. The 18 approved relationships have been explicitly
+applied and read back from the development DB: 1 general ordering, 14 scoped Context,
+and 3 informational relationships. Verification preserves scope and conditions;
+scoped edges are Context only, while general
+ordering edges enter the global cycle check. This is not a complete prerequisite
+graph, applicability evaluator, or dependency-expansion policy.
 
 The MVP focuses on a small, reviewed corpus and retrieval quality. Source seeds and crawl boundaries are curated in YAML. A bounded crawler may discover pages inside those boundaries, but discovered pages must be reviewed before they are indexed. The MVP does not require a continuously running crawler or a complete prerequisite graph.
 
@@ -17,7 +47,7 @@ The knowledge layer should:
 - Split content into coherent, searchable chunks with skill and section metadata.
 - Generate embeddings and store them in pgvector.
 - Retrieve relevant chunks for a skill gap and return source citations.
-- Leave room for reviewed skill dependencies and structured learning modules as later work.
+- Publish reviewed skill dependencies while keeping structured learning modules deferred.
 
 ## 3. Non-goals for MVP
 
@@ -245,7 +275,7 @@ The MVP is acceptable when:
 
 ### Phase 2 — Reviewed dependencies
 
-**Status: planned.** Extract dependency proposals only from explicit source evidence, resolve them against `core.skills`, review them, and publish only verified edges. The embedding model does not create dependency relationships by itself.
+**Status: implemented for the prepared corpus.** Document-grounded proposals resolve against `core.skills`, use human approve/reject review, and publish verified edges through explicit apply. Explicit and inferred advice remain distinct in the review/export artifact; inferred advice cannot become a hard prerequisite. The embedding model does not create dependency relationships by itself.
 
 ### Phase 3 — Learning modules
 
@@ -253,7 +283,7 @@ The MVP is acceptable when:
 
 ### Phase 4 — Agent context integration
 
-**Status: planned.** Assemble market, user, skill gap, verified structured knowledge, and RAG context into the agent context contract.
+**Status: host-owned preview implemented.** The `glow-job` assembler combines Market, User/Goal, skill-gap states, verified dependencies, and saved cited RAG knowledge into a typed contract with a deduplicated evidence registry. Production scores, automatic selection, applicability policy, and Agent/UI/persistence remain open.
 
 ## 17. Responsibilities
 
@@ -265,6 +295,6 @@ The AI/roadmap agent owns reasoning, prioritization based on supplied structured
 
 ## 18. Implementation boundary
 
-This document separates implemented ingestion/retrieval foundations from the remaining RAG and roadmap work. The current implementation covers bounded HTML discovery, manual page review, approved HTML parsing, chunk generation, persistence in the knowledge schema, Gemini Embedding 2 vectors in pgvector, embedding checks, and a basic semantic-search command. It does not yet provide systematic retrieval evaluation, relevance-threshold or reranker behavior, LLM context assembly and cited answer generation, automated evidence-backed dependency extraction/review, learning-module extraction, or roadmap-agent integration.
+This document separates implemented ingestion/retrieval foundations from the remaining RAG and roadmap work. The current implementation covers bounded HTML discovery, manual page review, approved HTML parsing, chunk generation, knowledge persistence, Gemini Embedding 2 vectors, basic semantic search, document-grounded dependency proposal/review/apply, and bounded cited knowledge preparation. The host assembles that knowledge with saved user and Market inputs. Systematic retrieval evaluation, calibrated relevance policies, learning-module extraction, and roadmap-agent integration remain open.
 
 Implementation should extend the existing documents scaffold and reuse the existing database model. Any schema change must be reflected in the knowledge DBML and migration together; do not create a parallel schema or redesign the tables without a demonstrated requirement. New documents should follow the existing review, parse, chunk, load, and embedding workflow. When model or vector dimensions change, preserve compatibility by re-embedding affected corpus vectors before searching them together.
