@@ -1,6 +1,6 @@
 Project glow_job_knowledge_view {
   database_type: 'PostgreSQL'
-  Note: 'Partial implementation: migrations create knowledge_sources, knowledge_chunks, and knowledge_chunk_skills. skill_dependencies and learning_modules remain planned. core.skills is owned by the pipeline schema and appears below only as an external reference.'
+  Note: 'Migrations 011/013 define sources, chunks, and chunk-to-skill links. Migrations 014/015 define evidence-backed dependencies with scope, chunk provenance and review metadata, and require explicit migration runs. learning_modules remain deferred. core.skills is an external reference.'
 }
 
 Enum dependency_type {
@@ -14,6 +14,13 @@ Enum dependency_strength {
   strong
   recommended
   weak
+}
+
+Enum dependency_scope {
+  general
+  document_specific
+  conditional
+  unknown
 }
 
 Enum proficiency_level {
@@ -55,6 +62,7 @@ Table knowledge.knowledge_chunks {
 
   indexes {
     (source_id, chunk_index) [unique, name: 'uq_knowledge_chunks_source_index']
+    (chunk_id, source_id) [unique, name: 'uq_knowledge_chunks_chunk_source']
   }
 }
 
@@ -77,16 +85,25 @@ Table knowledge.skill_dependencies {
   confidence numeric(4, 3)
   source_id bigint
   evidence_text text
+  scope_type dependency_scope [not null, default: 'unknown']
+  scope_note varchar(500) [note: 'Required document/audience/learner condition for verified scoped rows. Text is not automatically evaluated against a user.']
+  chunk_id bigint
+  evidence_content_hash text [note: 'SHA-256 of the reviewed chunk content.']
+  reviewed_by varchar(100) [note: 'Local reviewer label, not an authentication identity.']
+  reviewed_at timestamptz
+  review_note text
   is_verified boolean [not null, default: false]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
-    (prerequisite_skill_id, target_skill_id, dependency_type) [unique, name: 'uq_skill_dependencies_edge']
+    (prerequisite_skill_id) [name: 'ix_skill_dependencies_prerequisite']
   }
+
+  Note: 'Migrations 014/015 reject self-links and require known scope, evidence, exact chunk provenance and review metadata for new verified rows. SQL partial unique indexes separate general pair/type edges, scoped pair/type/scope/source/note contexts, and legacy unknown edges. Partial indexes are not fully represented here. Only general ordering edges enter global cycle checks. Scoped verified rows are context only.'
 }
 
-Table knowledge.learning_modules {
+Table knowledge.learning_modules [note: 'Deferred design; not created by the current migrations or required by the first Context implementation.'] {
   module_id bigint [pk, increment]
   skill_id bigint [not null]
   level proficiency_level [not null]
@@ -107,4 +124,5 @@ Ref: knowledge.knowledge_chunk_skills.skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.prerequisite_skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.target_skill_id > core.skills.skill_id
 Ref: knowledge.skill_dependencies.source_id > knowledge.knowledge_sources.source_id
+Ref: knowledge.skill_dependencies.(chunk_id, source_id) > knowledge.knowledge_chunks.(chunk_id, source_id)
 Ref: knowledge.learning_modules.skill_id > core.skills.skill_id
