@@ -12,21 +12,30 @@ migrations. The consolidated whole-system DBML and application schema view are
 maintained in the host repository's `docs/schemas/` folder; they are not
 duplicated here.
 
-The current shared PostgreSQL database contains these schemas after migrations
-`001`–`008` are applied:
+The migration history defines these shared PostgreSQL schemas. Application
+tables were introduced by host migration `008`; Knowledge tables start at `011`:
 
 ```text
 app      Accounts, resume profiles, career goals, and roadmaps
 core     Shared reference data and the skill catalog
 market   Job postings, extracted skills, and market aggregates
+knowledge  Reviewed documents, chunks, skill mappings, and dependency proposals
 system   Ingestion, AI-run, and schema-migration bookkeeping
 ```
 
 The host repository now contains a versioned migration for the `app` schema.
 This repository's migration runner applies it as part of the shared ordered
-history. The `knowledge` schema remains a future design area with no migration
-or processing implementation for learning documents, embeddings, or skill
-dependencies. See the [learning-graph design](../documents/learning-graph-flow.md) and
+history. Knowledge migrations `010`–`013` enable vectors and define document
+sources, chunks, and many-to-many canonical skill mappings. Migration `014`
+adds evidence-backed skill dependencies. Migration `015` adds scope, scoped
+conditions, exact chunk/source linkage, content hash and reviewer metadata.
+Both require explicit migration runs. Verified scoped rows are Context only;
+only general ordering edges enter the global cycle check. Learning modules remain deferred.
+Document ingestion, embeddings, and CLI semantic search are implemented;
+document-backed dependency review/apply and bounded knowledge retrieval are implemented.
+Host Context assembly is separate from the pipeline; automatic dependency expansion
+and application RAG endpoints remain future work.
+See the [learning-graph design](../documents/learning-graph-flow.md) and
 [repository architecture](../architecture/repository-architecture.md) for the
 documented boundaries.
 
@@ -59,10 +68,15 @@ system
 ├── ingestion_runs
 ├── ai_runs
 └── schema_migrations
+
+knowledge
+├── knowledge_sources, knowledge_chunks, knowledge_chunk_skills
+├── skill_dependencies  # Migrations 014/015, scope/provenance/review metadata
+└── learning_modules    # Deferred design, no table migration
 ```
 
 For the pipeline-owned database model, see
-[pipeline-schema.dbml](schemas/pipeline-schema.dbml). The planned knowledge
+[pipeline-schema.dbml](schemas/pipeline-schema.dbml). The knowledge
 domain has its own [knowledge-schema.dbml](schemas/knowledge-schema.dbml).
 For the consolidated Glow-Job view and application schema, see the host
 repository's [glow-job.dbml](../../../docs/schemas/glow-job.dbml) and

@@ -12,18 +12,31 @@ See the [document extraction flow](../../docs/documents/document-extraction-flow
 for the end-to-end commands and review points, and the [skill knowledge and RAG
 specification](../../docs/documents/skill-knowledge-rag-spec.md) for scope,
 current status, and existing-schema constraints.
+The [dependency review guide](../../docs/documents/skill-dependency-review-guide.md)
+documents the proposal/checkpoint/explicit-apply workflow, including CMD commands.
+The current dependency workflow reads every prepared active document chunk in
+resumable batches, prepares cited proposals with explicit/inferred basis, and uses
+one-key approve/reject plus an approved-only AI handoff export. It does not generate
+dependencies across the entire catalog from general model knowledge.
 The [learning graph flow](../../docs/documents/learning-graph-flow.md) describes
-the later evidence-backed dependency stage.
+the broader learning graph design.
 
 | Package | Responsibility and status |
 |---|---|
 | `ingestion` | Implemented for bounded HTML crawling from YAML source configurations, with candidate-page manifests and explicit review decisions. |
 | `parsing` | Implemented for approved HTML pages, extracting heading-path sections and removing common boilerplate. Other input formats remain future work. |
 | `chunking` | Implemented as heading-aware chunks with provenance and topic metadata. Review generated chunk artifacts before loading them. |
-| `extraction` | Future work: propose evidence-backed prerequisite claims or structured learning topics for review. Current topic paths come from source headings. |
+| `extraction` | Bounded document-backed dependency proposals, local human review, cycle checks and verified lookup are implemented. Structured learning-topic extraction remains future work. |
 | `embeddings` | Implemented for the demo with Gemini Embedding 2 and PostgreSQL/pgvector. |
-| `schemas` | Shared source, candidate-page, and chunk contracts are implemented for the current workflow. |
+| `schemas` | Source, candidate-page, chunk and dependency proposal/review contracts. |
 | Retrieval | A command-line semantic-search prototype is implemented with optional canonical-skill filtering and a configurable result limit. Retrieval evaluation and the application RAG flow remain future work. |
+
+`retrieval/skill_context.py` adds a bounded knowledge-Context preview: approved
+canonical filters, active-source coverage, complete-chunk budgets, shared Gemini
+text review, exact quote/citation validation and scoped foundation/related mentions.
+It separates teaching passages from topic outlines and reports unavailable content
+without generating a lesson. The host-facing CLI and [usage guide](../../../docs/rag/skill-knowledge-context-guide.md)
+are in the glow-job parent repository; no HTTP RAG endpoint or Roadmap Agent is added.
 
 Keep a traceable source ID, canonical skill ID, section/page reference, and
 evidence text with extracted knowledge. Prerequisite claims should be treated
@@ -32,6 +45,11 @@ Reuse the canonical skill vocabulary and provider adapters from `src.shared`.
 
 The demo uses Gemini Embedding 2 with 768 output dimensions and the existing PostgreSQL + pgvector database; it does not require a separate vector database. Migrations `010`–`013` enable pgvector, create the source/chunk tables, and map chunks to multiple skills.
 
+Migrations `014`/`015` add reviewed dependencies with scope/conditions, exact
+chunk provenance and reviewer metadata. Verified general ordering edges are
+separate from document-specific/conditional Context; verification does not
+establish that a condition applies to a particular learner.
+
 For a new or updated corpus, preview the reviewed combined chunk file with `python -m scripts.documents.load_chunks`. Apply it only after the preview has no unmatched skill labels and the database migrations are complete. Loading stores source/chunk text and metadata; embeddings are generated separately. Preview pending vectors with `python -m scripts.documents.embed_chunks`. For a first run, generate and inspect a small sample before embedding the remaining chunks. Embeddings are saved in committed batches so a later run can resume. The command estimates request token volume and paces batches to its configured tokens-per-minute target; keep this below the active Gemini project quota. Run `python -m scripts.documents.check_embeddings` for a read-only check of completion, model name, and vector dimensions.
 
-Try semantic retrieval with `python -m scripts.documents.search_chunks --query "..."`; add `--skill "..."` to filter by a canonical skill or alias, and `--limit` to change the number of returned chunks (default 5, maximum 50). The current search command returns ranked excerpts; it does not apply a relevance threshold, assemble a context window, or call a language model to generate a cited answer. Remaining work includes representative-query evaluation, retrieval/context selection policy, source refresh and deduplication policy, evidence-backed dependency proposals and review, and the application RAG endpoint.
+Try semantic retrieval with `python -m scripts.documents.search_chunks --query "..."`; add `--skill "..."` to filter by a canonical skill or alias, and `--limit` to change the number of returned chunks (default 5, maximum 50). The current search command returns ranked excerpts; it does not apply a relevance threshold, assemble a context window, or call a language model to generate a cited answer. Dependency proposals and human review use the separate workflow above. Remaining work includes representative-query evaluation, retrieval/context selection policy, source refresh and deduplication policy, dependency expansion/level policies, and the application RAG endpoint.
