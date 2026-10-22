@@ -53,9 +53,10 @@ def apply_migrations() -> list[str]:
 
             sql = migration_file.read_text(encoding="utf-8")
             with connection.transaction():
-                for statement in sql.split(";"):
-                    if statement.strip():
-                        connection.execute(statement)
+                # Let PostgreSQL parse the file so semicolons inside string
+                # literals, comments, or regular expressions are not treated
+                # as statement separators by Python.
+                connection.execute(sql, prepare=False)
                 connection.execute(
                     "INSERT INTO system.schema_migrations (version) VALUES (%s)",
                     (version,),
