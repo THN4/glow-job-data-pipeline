@@ -20,7 +20,13 @@ def test_gemini_generate_sends_prompt_and_returns_response(monkeypatch) -> None:
     result = gemini_client.gemini_generate("Extract skills from this job")
 
     assert result == '{"skills": []}'
-    client_constructor.assert_called_once_with(api_key="test-key")
+    client_constructor.assert_called_once()
+    client_options = client_constructor.call_args.kwargs
+    assert client_options["api_key"] == "test-key"
+    assert (
+        client_options["http_options"].timeout
+        == gemini_client.GEMINI_GENERATE_TIMEOUT_MS
+    )
     fake_client.__enter__.return_value.models.generate_content.assert_called_once_with(
         model="gemini-3.5-flash-lite",
         contents="Extract skills from this job",
