@@ -120,7 +120,7 @@ def retrieve(connection, skill_id, vector, policy):
 
 
 def review_content(skill, request, query, chunks, *, generate=None, save_raw=None):
-    from src.shared.llm.gemini_client import gemini_generate
+    from src.shared.llm.bedrock_client import bedrock_generate
 
     data = {"skill_id": skill["skill_id"], "skill_name": skill["skill_name"], "query": query,
             "intent": request.intent, "current_level": request.current_level,
@@ -157,7 +157,7 @@ and every citation must be selected. Do not generate a complete Roadmap or assig
 """ + f"Select at most {request.policy.selected_limit} chunks.\nDATA:\n" + json.dumps(data, ensure_ascii=False)
     correction = ""
     for attempt in range(2):
-        raw = (generate or gemini_generate)(prompt + correction)
+        raw = (generate or bedrock_generate)(prompt + correction)
         if save_raw:
             save_raw(skill["skill_id"], attempt + 1, raw)
         try:
@@ -277,10 +277,10 @@ def prepare_context(connection, request, *, text_review=False, generate=None, sa
         contexts.append(context)
         if on_skill:
             on_skill(context)
-    from src.shared.llm.gemini_client import GEMINI_MODEL
+    from src.shared.llm.bedrock_client import BedrockTextSettings
     return KnowledgeContextPreview(
         embedding_model=EMBEDDING_MODEL, embedding_dimensions=EMBEDDING_DIMENSIONS,
-        text_model=GEMINI_MODEL if text_review else None, policy=request.policy,
+        text_model=BedrockTextSettings().BEDROCK_RAG_MODEL if text_review else None, policy=request.policy,
         content_chars_sent_for_review=sent_chars,
         selected_content_chars=sum(len(chunk.content) for context in contexts for chunk in context.retrieved_context),
         skills=contexts,
