@@ -14,3 +14,4 @@ pymupdf>=1.24
 pillow>=10.1
 filetype>=1.2
 httpx>=0.27
+boto3[crt]>=1.41.0
