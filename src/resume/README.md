@@ -27,7 +27,14 @@ pipeline code to process a resume.
 The backend imports this domain from the sibling submodule. Initialize
 `data-pipeline` from the `glow-job` root before running the backend.
 
-Resume model-backed extraction uses `src.resume.extraction.providers.gemini`,
+For Nova Pro, use `RESUME_EXTRACTOR=bedrock_converse` and
+`BEDROCK_EXTRACTION_MODEL=amazon.nova-pro-v1:0` with `AWS_DEFAULT_REGION=us-east-1`
+and your normal AWS credentials. The Bedrock adapter preserves the same CV
+prompt, schema, ordered text/image pages and one schema-repair attempt. The
+Nova v1 output cap is 5000 tokens; incomplete output is rejected. Install the
+pipeline requirements for boto3, including its AWS login credential support.
+
+Legacy model-backed extraction uses `src.resume.extraction.providers.gemini`,
 which calls the shared Gemini model and reads `GEMINI_API_KEY`. Set
 `RESUME_EXTRACTOR=gemini` to enable it; `RESUME_EXTRACTOR=mock` keeps local
 development and API integration independent from external model calls. The

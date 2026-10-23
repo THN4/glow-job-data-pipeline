@@ -10,6 +10,14 @@ from .mock import MockExtractor
 
 def create_extractor(cfg: ResumeModelSettings) -> Extractor:
     """Build a provider from any settings object exposing the resume model fields."""
+    if cfg.RESUME_EXTRACTOR == "bedrock_converse":
+        from .bedrock import BedrockExtractor
+
+        return BedrockExtractor(
+            region=cfg.AWS_REGION or cfg.AWS_DEFAULT_REGION,
+            model_id=cfg.BEDROCK_EXTRACTION_MODEL,
+            timeout_ms=cfg.RESUME_BEDROCK_TIMEOUT_MS,
+        )
     if cfg.RESUME_EXTRACTOR == "gemini":
         return GeminiExtractor(
             api_key=cfg.GEMINI_API_KEY or "",
