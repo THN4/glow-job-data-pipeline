@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 SERVER_ERROR_MAX_ATTEMPTS = 3
 SERVER_ERROR_RETRY_DELAY_SECONDS = 2
+GEMINI_GENERATE_TIMEOUT_MS = 90_000
 
 
 class GeminiRateLimitError(RuntimeError):
@@ -41,7 +42,7 @@ def gemini_generate(prompt: str) -> str:
     """Return Gemini's JSON response text for one prompt."""
     for attempt in range(1, SERVER_ERROR_MAX_ATTEMPTS + 1):
         try:
-            with create_gemini_client() as client:
+            with create_gemini_client(timeout_ms=GEMINI_GENERATE_TIMEOUT_MS) as client:
                 response = client.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=prompt,

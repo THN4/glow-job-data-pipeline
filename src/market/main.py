@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -32,6 +33,8 @@ def main(
     skill_request_interval: float = 10.0,
     skill_output_dir: Path = Path("data/processed/skill_extraction"),
     raw_output_dir: Path = Path("data/raw"),
+    raw_s3_bucket: str | None = None,
+    raw_s3_prefix: str = "raw/jsearch",
     company_review_output_dir: Path = Path(
         "data/processed/company_match_candidates"
     ),
@@ -77,11 +80,25 @@ def main(
             settings.search.country,
             len(settings.careers),
         )
-        results = extract_jobs(
-            settings,
-            output_dir=raw_output_dir,
-            run_id=run_id,
-        )
+        s3_bucket = (raw_s3_bucket or os.getenv("RAW_S3_BUCKET", "")).strip()
+        if s3_bucket:
+            s3_prefix = (
+                os.getenv("RAW_S3_PREFIX", raw_s3_prefix).strip("/")
+                or "raw/jsearch"
+            )
+            results = extract_jobs(
+                settings,
+                output_dir=raw_output_dir,
+                run_id=run_id,
+                s3_bucket=s3_bucket,
+                s3_prefix=s3_prefix,
+            )
+        else:
+            results = extract_jobs(
+                settings,
+                output_dir=raw_output_dir,
+                run_id=run_id,
+            )
         logger.info("Extraction completed: %d query responses received", len(results))
 
     valid_jobs, invalid_jobs = validate_jobs(results, settings)

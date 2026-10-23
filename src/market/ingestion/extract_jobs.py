@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.market.ingestion.raw_storage import save_raw_result
+from src.market.ingestion.raw_storage import save_raw_result, save_raw_result_to_s3
 from src.market.config.settings import Settings
 from src.market.ingestion.extract_single_query import extract_single_query
 
@@ -14,6 +14,8 @@ def extract_jobs(
     *,
     output_dir: Path,
     run_id: str,
+    s3_bucket: str | None = None,
+    s3_prefix: str = "raw/jsearch",
 ) -> list[dict[str, object]]:
     extracted_results = []
 
@@ -59,13 +61,23 @@ def extract_jobs(
                 "response": response_data,
             }
 
-            saved_path = save_raw_result(
-                result=result,
-                output_dir=output_dir,
-                run_id=run_id,
-                query_number=query_number,
-                collected_at=collected_at,
-            )
+            if s3_bucket:
+                saved_path = save_raw_result_to_s3(
+                    result=result,
+                    bucket=s3_bucket,
+                    prefix=s3_prefix,
+                    run_id=run_id,
+                    query_number=query_number,
+                    collected_at=collected_at,
+                )
+            else:
+                saved_path = save_raw_result(
+                    result=result,
+                    output_dir=output_dir,
+                    run_id=run_id,
+                    query_number=query_number,
+                    collected_at=collected_at,
+                )
 
             extracted_results.append(result)
 

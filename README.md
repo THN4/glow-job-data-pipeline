@@ -103,6 +103,14 @@ python -m pytest
 
 Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` to configure `search` request parameters and `validation` thresholds; edit `config/careers.yaml` to add career search queries without changing Python code.
 
+To write each complete raw JSearch response to S3 instead of local disk, set
+`RAW_S3_BUCKET` to the destination bucket and optionally set `RAW_S3_PREFIX`
+(default: `raw/jsearch`). Objects use the key format
+`<prefix>/YYYY/MM/DD/<run_id>/<query_number>_<career_slug>.json`. The runtime
+must have AWS credentials through its normal AWS credential chain; on EC2, use
+an instance profile with `s3:PutObject` access scoped to this bucket/prefix.
+When `RAW_S3_BUCKET` is blank, local storage under `data/raw/` remains active.
+
 To extract skills from an existing raw run, set `GEMINI_API_KEY` in `.env` and run:
 
 ```shell
