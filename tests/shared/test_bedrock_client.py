@@ -57,3 +57,28 @@ def test_client_has_bounded_retries_and_timeout(monkeypatch):
     cfg = factory.call_args.kwargs["config"]
     assert cfg.retries == {"total_max_attempts": 3, "mode": "adaptive"}
     assert cfg.read_timeout == 120
+
+
+def test_structured_response_uses_only_expected_tool_input():
+    client = Mock()
+    client.converse.return_value = {"stopReason": "tool_use", "output": {"message": {"content": [
+        {"text": "Non-JSON model commentary"},
+        {"toolUse": {"toolUseId": "cv", "name": "submit_cv", "input": {"summary": None}}},
+    ]}}}
+    result = bedrock.converse_text(client, model_id="test", content=[{"text": "CV"}],
+                                  output_schema={"type": "object", "properties": {}})
+    assert result.text == '{"summary": null}'
+
+
+@pytest.mark.parametrize("tools", [
+    [], [{"name": "unexpected", "input": {}}],
+    [{"name": "submit_cv", "input": "invalid input type"}],
+    [{"name": "submit_cv", "input": {}}, {"name": "submit_cv", "input": {}}],
+])
+def test_missing_wrong_or_multiple_tool_results_rejected(tools):
+    client = Mock()
+    client.converse.return_value = {"stopReason": "tool_use", "output": {"message": {"content": [
+        {"toolUse": tool} for tool in tools]}}}
+    with pytest.raises(bedrock.BedrockRequestError, match="required CV tool"):
+        bedrock.converse_text(client, model_id="test", content=[{"text": "CV"}],
+                              output_schema={"type": "object", "properties": {}})

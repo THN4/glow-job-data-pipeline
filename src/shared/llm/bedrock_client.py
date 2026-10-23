@@ -6,6 +6,7 @@ Gemini embeddings and all other pipeline model callers are independent of this a
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 import boto3
 from botocore.config import Config
@@ -52,22 +53,41 @@ def create_bedrock_client(*, region: str, timeout_ms: int = 180_000):
         raise BedrockRequestError("Bedrock credentials or client configuration are unavailable.") from error
 
 
-def converse_text(client, *, model_id: str, content: list[dict], system: str | None = None) -> TextResponse:
+def converse_text(client, *, model_id: str, content: list[dict], system: str | None = None,
+                  output_schema: dict | None = None) -> TextResponse:
     request = dict(
         modelId=model_id, messages=[{"role": "user", "content": content}],
         inferenceConfig={"maxTokens": MAX_OUTPUT_TOKENS, "temperature": 0},
     )
     if system is not None:
         request["system"] = [{"text": system}]
+    if output_schema is not None:
+        request["toolConfig"] = {
+            "tools": [{"toolSpec": {
+                "name": "submit_cv", "description": "Return the extracted CV using the required CV schema.",
+                "inputSchema": {"json": output_schema},
+            }}],
+            "toolChoice": {"tool": {"name": "submit_cv"}},
+        }
     try:
         response = client.converse(**request)
     except (ConnectTimeoutError, ReadTimeoutError, TimeoutError) as error:
         raise BedrockRequestError("Bedrock request timed out.", timeout=True) from error
     except (ClientError, BotoCoreError, OSError) as error:
         raise BedrockRequestError("Bedrock request failed. Check AWS credentials, model access and region.") from error
-    if response.get("stopReason") != "end_turn":
+    expected_stop = "tool_use" if output_schema is not None else "end_turn"
+    if response.get("stopReason") != expected_stop:
         raise BedrockRequestError("Bedrock did not return a complete response.")
-    text = "".join(block.get("text", "") for block in response.get("output", {}).get("message", {}).get("content", []))
+    blocks = response.get("output", {}).get("message", {}).get("content", [])
+    if output_schema is not None:
+        tools = [block["toolUse"] for block in blocks if "toolUse" in block]
+        if len(tools) != 1 or tools[0].get("name") != "submit_cv" or not isinstance(tools[0].get("input"), dict):
+            raise BedrockRequestError("Bedrock did not return the required CV tool response.")
+        # This is a structured result envelope, not a tool that executes code.
+        # The caller still validates every field with the original Pydantic schema.
+        text = json.dumps(tools[0]["input"], ensure_ascii=False)
+    else:
+        text = "".join(block.get("text", "") for block in blocks)
     if not text.strip():
         raise BedrockRequestError("Bedrock returned no text.")
     usage = response.get("usage", {})

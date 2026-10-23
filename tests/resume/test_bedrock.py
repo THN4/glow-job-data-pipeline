@@ -16,8 +16,10 @@ from src.resume.extraction.providers import bedrock
 from src.resume.extraction.providers.mock import mock_extraction
 
 
-def response(text, stop="end_turn"):
-    return {"stopReason": stop, "output": {"message": {"content": [{"text": text}]}},
+def response(text, stop="tool_use"):
+    return {"stopReason": stop, "output": {"message": {"content": [{
+        "toolUse": {"name": "submit_cv", "toolUseId": "cv", "input": json.loads(text)},
+    }]}},
             "usage": {"inputTokens": 11, "outputTokens": 7}}
 
 
@@ -55,6 +57,12 @@ def test_text_contract_prompt_usage_and_cache(monkeypatch):
     assert json.dumps(expected.model_json_schema(by_alias=True)) in request["system"][0]["text"]
     assert request["messages"][0]["content"] == [{"text": f"<cv>\nSynthetic CV\n</cv>\n\n{USER_INSTRUCTIONS}"}]
     assert extractor.cache_identity["maxOutputTokens"] == request["inferenceConfig"]["maxTokens"]
+    assert extractor.cache_identity["responseFormat"] == "nova-tool-v1"
+    assert request["toolConfig"]["toolChoice"] == {"tool": {"name": "submit_cv"}}
+    schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    assert set(schema) == {"type", "properties", "required"}
+    assert "$ref" not in json.dumps(schema)
+    assert "technicalSkills" in schema["required"]
     client.close.assert_called_once()
 
 
@@ -98,7 +106,7 @@ def test_image_only_cv(monkeypatch):
         {"image": {"format": "jpeg", "source": {"bytes": b"jpeg"}}}, {"text": USER_INSTRUCTIONS}]
 
 
-@pytest.mark.parametrize("stop", ["max_tokens", "content_filtered", "guardrail_intervened", "tool_use"])
+@pytest.mark.parametrize("stop", ["max_tokens", "content_filtered", "guardrail_intervened", "end_turn"])
 def test_incomplete_output_rejected(monkeypatch, stop):
     client = setup_client(monkeypatch, response(mock_extraction().model_dump_json(), stop))
     with pytest.raises(ResumeProcessingError):
@@ -112,3 +120,19 @@ def test_timeout_uses_existing_domain_error(monkeypatch):
         run()
     assert error.value.code == "EXTRACTION_TIMEOUT"
     assert "private input" not in str(error.value)
+
+
+def test_invalid_fields_repaired_without_logging_cv_values(monkeypatch, caplog):
+    data = mock_extraction().model_dump(by_alias=True)
+    data["personal"]["confidence"] = "private-cv-value"
+    data["private-property-name"] = "private-property-value"
+    client = setup_client(monkeypatch, response(json.dumps(data)),
+                          response(mock_extraction().model_dump_json(by_alias=True)))
+    result = run()
+    assert result.extraction == mock_extraction()
+    assert client.converse.call_count == 2
+    assert "cv.nova.schema_invalid" in caplog.text
+    assert "confidence" in caplog.text
+    assert "literal_error" in caplog.text
+    assert "<unknown-field>" in caplog.text
+    assert "private-" not in caplog.text
