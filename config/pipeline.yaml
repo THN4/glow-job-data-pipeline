@@ -1,0 +1,22 @@
+search:
+  country: TH
+  max_pages: 2
+  # JSearch posting-date filter: all, today, 3days, week, month.
+  # The provider's week filter returned no jobs for live TH queries even though
+  # an unfiltered response contained jobs posted 4-5 days earlier.
+  date_posted: all
+  # Apply a verified rolling publication-date limit locally before DB loading.
+  posted_within_days: 7
+
+validation:
+  # Local age-validation limit and default Market statistics window.
+  # Independent of search.date_posted; retain historical Market statistics.
+  time_window_days: 184
+  minimum_description_length: 100
+
+jsearch:
+  method: GET
+  url: https://jsearch.p.rapidapi.com/search-v2
+  host: jsearch.p.rapidapi.com
+  content_type: application/json
+  api_key_env: JSEARCH_API_KEY

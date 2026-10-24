@@ -1,0 +1,337 @@
+{
+  "version": "3.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "currentViewName": null,
+  "defaultView": {
+    "detailLevel": "All",
+    "relationshipMode": "All",
+    "tablePositions": [
+      {
+        "name": "companies",
+        "schemaName": "core",
+        "x": 0,
+        "y": 50
+      },
+      {
+        "name": "careers",
+        "schemaName": "core",
+        "x": 426.35400390625,
+        "y": 50
+      },
+      {
+        "name": "career_profiles",
+        "schemaName": "core",
+        "x": 822.8006786437466,
+        "y": 72.26650784295765
+      },
+      {
+        "name": "skills",
+        "schemaName": "core",
+        "x": 1240.5893712699694,
+        "y": 56.36185938370218
+      },
+      {
+        "name": "skill_aliases",
+        "schemaName": "core",
+        "x": 0,
+        "y": 324
+      },
+      {
+        "name": "job_postings",
+        "schemaName": "market",
+        "x": 1222.2911229380795,
+        "y": 1091.7051713438518
+      },
+      {
+        "name": "job_search_matches",
+        "schemaName": "market",
+        "x": 879.8461095232988,
+        "y": 867.2265056667719
+      },
+      {
+        "name": "job_skills",
+        "schemaName": "market",
+        "x": 1238.9989064240438,
+        "y": 402.8992100171665
+      },
+      {
+        "name": "career_skill_stats",
+        "schemaName": "market",
+        "x": 0,
+        "y": 534
+      },
+      {
+        "name": "ingestion_runs",
+        "schemaName": "system",
+        "x": 440.6681875195799,
+        "y": 1088.9425508399897
+      },
+      {
+        "name": "skill_candidate_reviews",
+        "schemaName": "core",
+        "x": 555.2392578125,
+        "y": 420
+      }
+    ],
+    "tableGroupCollapseStates": [],
+    "stickyNoteLayouts": [],
+    "referencePaths": [
+      {
+        "firstFieldNames": [
+          "career_id"
+        ],
+        "firstTableName": "career_profiles",
+        "firstSchemaName": "core",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "career_id"
+        ],
+        "secondTableName": "careers",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "skill_id"
+        ],
+        "firstTableName": "skill_aliases",
+        "firstSchemaName": "core",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "skill_id"
+        ],
+        "secondTableName": "skills",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 320.23056565118065,
+            "y": 404
+          },
+          {
+            "x": 320.23056565118065,
+            "y": -13.508777718559912
+          },
+          {
+            "x": 1091.76171875,
+            "y": -13.508777718559912
+          }
+        ]
+      },
+      {
+        "firstFieldNames": [
+          "company_id"
+        ],
+        "firstTableName": "job_postings",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "company_id"
+        ],
+        "secondTableName": "companies",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "career_profile_id"
+        ],
+        "firstTableName": "job_postings",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "career_profile_id"
+        ],
+        "secondTableName": "career_profiles",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 743.855970755338,
+            "y": 546.8992100171665
+          },
+          {
+            "x": 743.855970755338,
+            "y": 120.26650784295765
+          }
+        ]
+      },
+      {
+        "firstFieldNames": [
+          "job_id"
+        ],
+        "firstTableName": "job_search_matches",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "job_id"
+        ],
+        "secondTableName": "job_postings",
+        "secondSchemaName": "market",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 779.7555856119537,
+            "y": 906.5074428651683
+          },
+          {
+            "x": 779.7555856119537,
+            "y": 450.8992100171665
+          }
+        ]
+      },
+      {
+        "firstFieldNames": [
+          "run_id"
+        ],
+        "firstTableName": "job_search_matches",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "run_id"
+        ],
+        "secondTableName": "ingestion_runs",
+        "secondSchemaName": "system",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "career_profile_id"
+        ],
+        "firstTableName": "job_search_matches",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "career_profile_id"
+        ],
+        "secondTableName": "career_profiles",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "job_id"
+        ],
+        "firstTableName": "job_skills",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "job_id"
+        ],
+        "secondTableName": "job_postings",
+        "secondSchemaName": "market",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "skill_id"
+        ],
+        "firstTableName": "job_skills",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "skill_id"
+        ],
+        "secondTableName": "skills",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "career_profile_id"
+        ],
+        "firstTableName": "career_skill_stats",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "career_profile_id"
+        ],
+        "secondTableName": "career_profiles",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 407.13109491800674,
+            "y": 582
+          },
+          {
+            "x": 407.13109491800674,
+            "y": 381.10274257474754
+          },
+          {
+            "x": 775.7627762630123,
+            "y": 381.10274257474754
+          },
+          {
+            "x": 775.7627762630123,
+            "y": 120.26650784295765
+          }
+        ]
+      },
+      {
+        "firstFieldNames": [
+          "skill_id"
+        ],
+        "firstTableName": "career_skill_stats",
+        "firstSchemaName": "market",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "skill_id"
+        ],
+        "secondTableName": "skills",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 1156.1755450099847,
+            "y": 614
+          },
+          {
+            "x": 1156.1755450099847,
+            "y": 104.36185938370218
+          }
+        ]
+      },
+      {
+        "firstFieldNames": [
+          "career_profile_id"
+        ],
+        "firstTableName": "ingestion_runs",
+        "firstSchemaName": "system",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "career_profile_id"
+        ],
+        "secondTableName": "career_profiles",
+        "secondSchemaName": "core",
+        "secondRelation": "1",
+        "checkPoints": [
+          {
+            "x": 1135.0301630666088,
+            "y": 1232.9425508399897
+          },
+          {
+            "x": 1135.0301630666088,
+            "y": 26.429081933350247
+          },
+          {
+            "x": 774.1723114170866,
+            "y": 26.429081933350247
+          },
+          {
+            "x": 774.1723114170866,
+            "y": 120.26650784295765
+          }
+        ]
+      }
+    ]
+  },
+  "views": {}
+}

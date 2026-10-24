@@ -1,0 +1,286 @@
+schema_version: 1
+sources:
+  - id: airflow-official-tutorials
+    title: "Apache Airflow Official Tutorials"
+    publisher: "Apache Software Foundation"
+    career_tracks:
+      - "Data Engineer"
+    skills:
+      - "Apache Airflow"
+    seed_urls:
+      - https://airflow.apache.org/docs/apache-airflow/stable/tutorial/index.html
+      - https://airflow.apache.org/docs/apache-airflow/stable/tutorial/fundamentals.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: python-software-foundation-tutorial
+    title: "The Python Tutorial"
+    publisher: "Python Software Foundation"
+    career_tracks:
+      - "AI Engineer"
+      - "Data Engineer"
+    skills:
+      - "Python"
+    seed_urls:
+      - https://docs.python.org/3/tutorial/
+      - https://docs.python.org/3/tutorial/introduction.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: postgresql-sql-tutorials
+    title: "PostgreSQL SQL and Database Tutorials"
+    publisher: "PostgreSQL Global Development Group"
+    career_tracks:
+      - "AI Engineer"
+      - "Backend Engineer"
+    skills:
+      - "SQL"
+      - "PostgreSQL"
+    seed_urls:
+      - https://www.postgresql.org/docs/current/tutorial.html
+      - https://www.postgresql.org/docs/current/tutorial-sql.html
+      - https://www.postgresql.org/docs/current/tutorial-select.html
+      - https://www.postgresql.org/docs/17/tutorial-start.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: typescript-handbook
+    title: "TypeScript Handbook and Learning Documentation"
+    publisher: "TypeScript"
+    career_tracks:
+      - "AI Engineer"
+      - "Backend Engineer"
+    skills:
+      - "TypeScript"
+    seed_urls:
+      - https://www.typescriptlang.org/docs/handbook/intro
+      - https://www.typescriptlang.org/docs/handbook/
+      - https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes-func.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: go-api-tutorials
+    title: "Go Tutorials and REST API Tutorial"
+    publisher: "Go"
+    career_tracks:
+      - "AI Engineer"
+      - "Backend Engineer"
+    skills:
+      - "APIs"
+      - "Golang"
+    seed_urls:
+      - https://go.dev/doc/tutorial/web-service-gin
+      - https://go.dev/doc/tutorial/
+      - https://go.dev/doc/tutorial/getting-started
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: mdn-javascript-guide
+    title: "MDN JavaScript Guide"
+    publisher: "MDN Web Docs"
+    career_tracks:
+      - "AI Engineer"
+      - "Backend Engineer"
+    skills:
+      - "JavaScript"
+    seed_urls:
+      - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+      - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Introduction
+      - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Language_overview
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: apache-spark-documentation
+    title: "Apache Spark Documentation and SQL Guide"
+    publisher: "Apache Software Foundation"
+    career_tracks:
+      - "AI Engineer"
+      - "Data Engineer"
+    skills:
+      - "Spark"
+      - "Python"
+      - "SQL"
+      - "Hive"
+    seed_urls:
+      - https://spark.apache.org/docs/latest/quick-start.html
+      - https://spark.apache.org/docs/latest/sql-getting-started.html
+      - https://spark.apache.org/docs/latest/
+      - https://spark.apache.org/docs/latest/sql-programming-guide.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: openai-prompt-engineering-guide
+    title: "OpenAI Prompt Engineering Guide"
+    publisher: "OpenAI"
+    career_tracks:
+      - "AI Engineer"
+    skills:
+      - "RAG"
+    seed_urls:
+      - https://developers.openai.com/api/docs/guides/prompt-engineering
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: ml-ops-principles
+    title: "MLOps Principles"
+    publisher: "MLOps Community / SIG MLOps"
+    career_tracks:
+      - "AI Engineer"
+    skills:
+      - "MLOps"
+    seed_urls:
+      - https://ml-ops.org/content/mlops-principles
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: microsoft-learn-data-engineering
+    title: "Microsoft Learn Data Engineering and Power BI Documentation"
+    publisher: "Microsoft"
+    career_tracks:
+      - "Data Engineer"
+    skills:
+      - "SQL"
+      - "ETL"
+      - "Azure"
+      - "Databricks"
+      - "Power BI"
+    seed_urls:
+      - https://learn.microsoft.com/en-us/sql/t-sql/tutorial-writing-transact-sql-statements?view=sql-server-ver17
+      - https://learn.microsoft.com/en-us/azure/data-factory/
+      - https://learn.microsoft.com/en-us/azure/databricks/data-engineering/
+      - https://learn.microsoft.com/en-us/power-query/where-to-get-data
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: databricks-etl-documentation
+    title: "Databricks ETL and Lakeflow Pipeline Documentation"
+    publisher: "Databricks"
+    career_tracks:
+      - "Data Engineer"
+    skills:
+      - "ETL"
+      - "ELT"
+      - "Databricks"
+      - "SQL"
+      - "Python"
+    seed_urls:
+      - https://docs.databricks.com/aws/en/sql/get-started/sql-etl-tutorial
+      - https://docs.databricks.com/gcp/en/getting-started/data-pipeline-get-started
+      - https://docs.databricks.com/aws/en/migration/etl
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: snowflake-data-loading-documentation
+    title: "Snowflake Data Loading Documentation"
+    publisher: "Snowflake"
+    career_tracks:
+      - "Data Engineer"
+    skills:
+      - "Snowflake"
+      - "SQL"
+      - "ETL"
+      - "ELT"
+    seed_urls:
+      - https://docs.snowflake.com/en/user-guide/data-load-overview
+      - https://docs.snowflake.com/en/user-guide/data-load-considerations-load
+      - https://docs.snowflake.com/en/user-guide/data-load-tutorials
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: github-actions-cicd
+    title: "GitHub Actions CI/CD Documentation"
+    publisher: "GitHub"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "CI/CD"
+    seed_urls:
+      - https://docs.github.com/en/actions/get-started/understand-github-actions
+      - https://docs.github.com/en/actions/get-started/quickstart
+      - https://docs.github.com/en/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: git-scm-pro-git-book
+    title: "Pro Git Book"
+    publisher: "Git"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "Git"
+    seed_urls:
+      - https://git-scm.com/book/en/v2
+      - https://git-scm.com/book/en/v2/Getting-Started-What-is-Git%3F
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: react-learn
+    title: "React Learn Documentation"
+    publisher: "React"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "React"
+    seed_urls:
+      - https://react.dev/learn
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: oracle-java-tutorials
+    title: "The Java Tutorials"
+    publisher: "Oracle"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "Java"
+    seed_urls:
+      - https://docs.oracle.com/javase/tutorial/
+      - https://docs.oracle.com/javase/tutorial/java/
+      - https://docs.oracle.com/javase/tutorial/java/javaOO/index.html
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: docker-get-started
+    title: "Docker Getting Started and Container Labs"
+    publisher: "Docker"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "Docker"
+      - "Node.js"
+    seed_urls:
+      - https://docs.docker.com/get-started/docker-overview/
+      - https://docs.docker.com/get-started/
+      - https://docs.docker.com/guides/lab-container-getting-started/
+    max_depth: 1
+    max_pages: 12
+    review_required: true
+
+  - id: nodejs-learn
+    title: "Learn Node.js"
+    publisher: "Node.js"
+    career_tracks:
+      - "Backend Engineer"
+    skills:
+      - "Node.js"
+    seed_urls:
+      - https://nodejs.org/learn
+    max_depth: 1
+    max_pages: 12
+    review_required: true

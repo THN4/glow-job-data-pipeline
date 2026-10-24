@@ -1,0 +1,130 @@
+Project glow_job_knowledge_view {
+  database_type: 'PostgreSQL'
+  Note: 'Migrations 011/013 define sources, chunks, and chunk-to-skill links. Migrations 014/015 define evidence-backed dependencies with scope, chunk provenance and review metadata, and require explicit migration runs. learning_modules remain deferred. core.skills is an external reference.'
+}
+
+Enum dependency_type {
+  prerequisite
+  recommended_before
+  related
+}
+
+Enum dependency_strength {
+  required
+  strong
+  recommended
+  weak
+}
+
+Enum dependency_scope {
+  general
+  document_specific
+  conditional
+  unknown
+}
+
+Enum proficiency_level {
+  beginner
+  intermediate
+  advanced
+  expert
+  unknown
+}
+
+// External reference; canonical definition is in pipeline-schema.dbml.
+Table core.skills {
+  skill_id bigint [pk]
+}
+
+Table knowledge.knowledge_sources {
+  source_id bigint [pk, increment]
+  skill_id bigint
+  source_type text [not null]
+  title text [not null]
+  source_url text
+  storage_key text [note: 'Original file key in object storage, when applicable']
+  publisher text
+  is_active boolean [not null, default: true]
+  collected_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table knowledge.knowledge_chunks {
+  chunk_id bigint [pk, increment]
+  source_id bigint [not null]
+  topic text
+  chunk_index integer [not null]
+  content text [not null]
+  metadata jsonb
+  embedding_model text
+  embedding vector(768) [note: 'Legacy Gemini Embedding 2 vectors; requires pgvector']
+  embedding_nova_model text
+  embedding_nova vector(1024) [note: 'Amazon Nova Multimodal Embeddings; requires pgvector']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_id, chunk_index) [unique, name: 'uq_knowledge_chunks_source_index']
+    (chunk_id, source_id) [unique, name: 'uq_knowledge_chunks_chunk_source']
+  }
+}
+
+Table knowledge.knowledge_chunk_skills {
+  chunk_id bigint [not null]
+  skill_id bigint [not null]
+
+  indexes {
+    (chunk_id, skill_id) [pk]
+    (skill_id) [name: 'ix_knowledge_chunk_skills_skill_id']
+  }
+}
+
+Table knowledge.skill_dependencies {
+  dependency_id bigint [pk, increment]
+  prerequisite_skill_id bigint [not null]
+  target_skill_id bigint [not null]
+  dependency_type dependency_type [not null]
+  strength dependency_strength [not null]
+  confidence numeric(4, 3)
+  source_id bigint
+  evidence_text text
+  scope_type dependency_scope [not null, default: 'unknown']
+  scope_note varchar(500) [note: 'Required document/audience/learner condition for verified scoped rows. Text is not automatically evaluated against a user.']
+  chunk_id bigint
+  evidence_content_hash text [note: 'SHA-256 of the reviewed chunk content.']
+  reviewed_by varchar(100) [note: 'Local reviewer label, not an authentication identity.']
+  reviewed_at timestamptz
+  review_note text
+  is_verified boolean [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (prerequisite_skill_id) [name: 'ix_skill_dependencies_prerequisite']
+  }
+
+  Note: 'Migrations 014/015 reject self-links and require known scope, evidence, exact chunk provenance and review metadata for new verified rows. SQL partial unique indexes separate general pair/type edges, scoped pair/type/scope/source/note contexts, and legacy unknown edges. Partial indexes are not fully represented here. Only general ordering edges enter global cycle checks. Scoped verified rows are context only.'
+}
+
+Table knowledge.learning_modules [note: 'Deferred design; not created by the current migrations or required by the first Context implementation.'] {
+  module_id bigint [pk, increment]
+  skill_id bigint [not null]
+  level proficiency_level [not null]
+  title text [not null]
+  description text
+  learning_outcome text
+  sequence_order integer [not null]
+  estimated_hours numeric(6, 2)
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Ref: knowledge.knowledge_sources.skill_id > core.skills.skill_id
+Ref: knowledge.knowledge_chunks.source_id > knowledge.knowledge_sources.source_id
+Ref: knowledge.knowledge_chunk_skills.chunk_id > knowledge.knowledge_chunks.chunk_id
+Ref: knowledge.knowledge_chunk_skills.skill_id > core.skills.skill_id
+Ref: knowledge.skill_dependencies.prerequisite_skill_id > core.skills.skill_id
+Ref: knowledge.skill_dependencies.target_skill_id > core.skills.skill_id
+Ref: knowledge.skill_dependencies.source_id > knowledge.knowledge_sources.source_id
+Ref: knowledge.skill_dependencies.(chunk_id, source_id) > knowledge.knowledge_chunks.(chunk_id, source_id)
+Ref: knowledge.learning_modules.skill_id > core.skills.skill_id

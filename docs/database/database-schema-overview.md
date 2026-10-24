@@ -1,0 +1,211 @@
+# Glow-Job Database Schema Overview
+
+## 1. Purpose and implementation status
+
+This document separates the database objects implemented by this repository's
+migrations from the broader Glow-Job schema proposed for the host application.
+The SQL migration files in `migrations/versions/` define the pipeline-owned
+objects. The host repository's `migrations/versions/` adds the application
+schema to the same migration history. The pipeline DBML/DBDiagram files are
+domain design references and may include planned objects not created by these
+migrations. The consolidated whole-system DBML and application schema view are
+maintained in the host repository's `docs/schemas/` folder; they are not
+duplicated here.
+
+The migration history defines these shared PostgreSQL schemas. Application
+tables were introduced by host migration `008`; Knowledge tables start at `011`:
+
+```text
+app      Accounts, resume profiles, career goals, and roadmaps
+core     Shared reference data and the skill catalog
+market   Job postings, extracted skills, and market aggregates
+knowledge  Reviewed documents, chunks, skill mappings, and dependency proposals
+system   Ingestion, AI-run, and schema-migration bookkeeping
+```
+
+The host repository now contains a versioned migration for the `app` schema.
+This repository's migration runner applies it as part of the shared ordered
+history. Knowledge migrations `010`–`013` enable vectors and define document
+sources, chunks, and many-to-many canonical skill mappings. Migration `014`
+adds evidence-backed skill dependencies. Migration `015` adds scope, scoped
+conditions, exact chunk/source linkage, content hash and reviewer metadata.
+Both require explicit migration runs. Verified scoped rows are Context only;
+only general ordering edges enter the global cycle check. Learning modules remain deferred.
+Document ingestion, embeddings, and CLI semantic search are implemented;
+document-backed dependency review/apply and bounded knowledge retrieval are implemented.
+Host Context assembly is separate from the pipeline; automatic dependency expansion
+and application RAG endpoints remain future work.
+See the [learning-graph design](../documents/learning-graph-flow.md) and
+[repository architecture](../architecture/repository-architecture.md) for the
+documented boundaries.
+
+## 2. Current schema map
+
+```text
+app
+├── users, user_profiles, resumes, resume_extractions
+├── user_educations, user_experiences, user_skills, user_skill_evidence
+├── user_career_goals, user_certifications
+├── roadmaps, roadmap_steps, roadmap_tasks
+├── user_roadmap_progress, user_task_progress
+└── job_applications, application_feedback, interview_sessions, interview_feedback
+
+core
+├── companies
+├── careers
+├── career_profiles
+├── skills
+├── skill_aliases
+└── skill_candidate_reviews  # Legacy resolver queue; current rebuild uses CSV
+
+market
+├── job_postings
+├── job_search_matches
+├── job_skills
+└── career_skill_stats
+
+system
+├── ingestion_runs
+├── ai_runs
+└── schema_migrations
+
+knowledge
+├── knowledge_sources, knowledge_chunks, knowledge_chunk_skills
+├── skill_dependencies  # Migrations 014/015, scope/provenance/review metadata
+└── learning_modules    # Deferred design, no table migration
+```
+
+For the pipeline-owned database model, see
+[pipeline-schema.dbml](schemas/pipeline-schema.dbml). The knowledge
+domain has its own [knowledge-schema.dbml](schemas/knowledge-schema.dbml).
+For the consolidated Glow-Job view and application schema, see the host
+repository's [glow-job.dbml](../../../docs/schemas/glow-job.dbml) and
+[app-schema.dbml](../../../docs/schemas/app-schema.dbml). Apply migrations
+with `python -m scripts.database.migrate`; see the
+[migration guide](../../migrations/README.md).
+
+## 3. Domain responsibilities
+
+### `core`
+
+Stores shared reference records used by the market pipeline, including
+companies, careers, career profiles, canonical skills, and confirmed skill
+aliases. A canonical skill has one `skill_id`; market job-skill rows refer to
+that ID rather than copying the canonical name.
+
+`core.skill_candidate_reviews` was introduced for the earlier automatic
+candidate resolver. The current clean catalog rebuild stores review decisions
+in a local CSV preview and replaces the legacy review table during apply; it
+does not use this table as its active review queue.
+
+### `market`
+
+Stores provider job postings and query provenance, verified skills extracted
+from job descriptions, and career-level aggregates. `market.job_skills` links a
+posting to a canonical `core.skills` record and retains the observed raw name,
+classification, evidence, and scoring fields.
+
+### `system`
+
+Stores ingestion-run metadata and the migration history. Local JSON files under
+`data/raw/` and `data/processed/` are pipeline artifacts, not rows in
+`system`.
+
+## 4. Implemented tables
+
+### Shared reference data
+
+| Table | Purpose |
+|---|---|
+| `core.companies` | Canonical company names and optional normalized names and website. |
+| `core.careers` | Configured career categories. |
+| `core.career_profiles` | Job-search and market-analysis profiles linked to a career. |
+| `core.skills` | Canonical skill catalog, including `skill_category` and `catalog_status` (`approved` or `provisional`). |
+| `core.skill_aliases` | Confirmed alternate names mapped to a canonical skill. |
+| `core.skill_candidate_reviews` | Legacy automatic candidate-resolution records; retained in schema for compatibility. |
+
+### Market data
+
+| Table | Purpose |
+|---|---|
+| `market.job_postings` | Provider posting details, career and company references, publication-date quality, first-seen time, and extraction-completion status. |
+| `market.job_search_matches` | The search run, career profile, query, and collection time associated with a posting. |
+| `market.job_skills` | One matched canonical skill per job, with raw label, requirement/proficiency, evidence, importance, and confidence fields. |
+| `market.career_skill_stats` | Career-level demand statistics for a date window and date basis. |
+
+### Operational data
+
+| Table | Purpose |
+|---|---|
+| `system.ingestion_runs` | Source run state, counts, timestamps, and errors. |
+| `system.schema_migrations` | Applied migration versions and timestamps, managed by the migration runner. |
+
+## 5. Important fields and behavior
+
+### Job dates
+
+`market.job_postings.posted_at` stores the provider's publication timestamp
+when one can be parsed. `posted_at_status` is one of `exact`, `estimated`,
+`unknown`, or `unclassified` (the last value is used for older rows migrated
+without quality metadata). `first_seen_at` stores the earliest available
+pipeline collection time for the posting and is retained across later upserts.
+
+Career aggregates are keyed by `analysis_date_basis`:
+
+- `posted_at` uses provider publication time and excludes postings without a
+  usable publication date from the selected window.
+- `first_seen_at` uses pipeline discovery time and can include postings whose
+  publication date is unknown.
+
+### Job skill rows
+
+`market.job_skills` has a primary key on `(job_id, skill_id)`, so a canonical
+skill occurs at most once per posting. It stores `raw_skill_name` and
+`evidence_text` for traceability. A catalog-unmatched name is retained in the
+local skill checkpoint and is not inserted as a job-skill row by the normal
+loader.
+
+`skill_extraction_completed` on `market.job_postings` distinguishes a
+successful extraction with no matched skills from a job that has not completed
+extraction. Aggregation uses this flag and a usable job description to select
+its denominator; it does not infer completion from the existence of rows in
+`market.job_skills`.
+
+### Candidate review and catalog reset
+
+The current rebuild review is an offline CSV workflow. On apply, the rebuild
+backs up and replaces only the skill-related tables `core.skills`,
+`core.skill_aliases`, `core.skill_candidate_reviews`, `market.job_skills`, and
+`market.career_skill_stats`. It restarts skill identities while retaining job
+postings, companies, careers, and ingestion records. Review and apply details
+are in the [skill-candidate review guide](../market/skill-candidate-review-guide.md).
+
+## 6. Migration history
+
+| Migration | Change |
+|---|---|
+| `001_create_market_ingestion.sql` | Creates `core`, `market`, and `system` pipeline tables for companies, careers, profiles, ingestion runs, job postings, and search matches. |
+| `002_create_skill_catalog.sql` | Creates canonical skills and skill aliases. |
+| `003_create_job_skills.sql` | Creates job-skill links and adds extraction-completion status to postings. |
+| `004_create_career_skill_stats.sql` | Creates career-level skill aggregates. |
+| `005_add_posted_at_status.sql` | Adds publication-date quality, `first_seen_at`, and aggregate date basis. |
+| `006_add_automatic_skill_candidate_resolution.sql` | Adds provisional catalog status and the legacy candidate-review table. |
+| `007_add_split_applied_candidate_status.sql` | Adds the `split_applied` status to the legacy candidate-review table. |
+| `008_create_app_profile_and_roadmap.sql` (host repository) | Creates app onboarding, profile, resume, goal, roadmap, and application tables plus `system.ai_runs`. |
+
+Migration files from this repository and the host repository are applied in
+filename order by `python -m scripts.database.migrate`. Successful versions
+are tracked in `system.schema_migrations`; applied migrations are skipped on
+later runs.
+
+## 7. App and future knowledge schemas
+
+The app tables support accounts, profiles, resumes, user skills, career goals,
+roadmaps, progress, and applications. Their domain view is stored in the host
+repository. Migration `008` defines these tables, but they exist in a database
+only after that migration is applied. The `knowledge` schema is partially
+implemented by pipeline migrations `010`–`013`: pgvector, source and chunk
+tables, and many-to-many chunk-to-skill links. Skill dependencies and learning
+modules remain design-only; their domain view is stored in this repository.
+The embedding field uses the PostgreSQL vector extension enabled by migration
+`010`.

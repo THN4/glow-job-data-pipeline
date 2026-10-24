@@ -1,0 +1,58 @@
+careers:
+  data_engineer:
+    career_name: Data Engineer
+    title_aliases:
+      - Data Engineer
+      - Data Platform Engineer
+      - Cloud Data Engineer
+    queries:
+      - Data Engineer
+      - Junior Data Engineer
+      - Data Platform Engineer
+  backend_engineer:
+    career_name: Backend Engineer
+    title_aliases:
+      - Backend Engineer
+      - Backend Developer
+      - Backend Software Engineer
+      - Back End Engineer
+      - Software Engineer Backend
+    queries:
+      - Backend Engineer
+      - Backend Developer
+      - Backend Software Engineer
+  ai_engineer:
+    career_name: AI Engineer
+    title_aliases:
+      - AI Engineer
+      - Artificial Intelligence Engineer
+      - Generative AI Engineer
+      - GenAI Engineer
+    queries:
+      - AI Engineer
+      - Generative AI Engineer
+  data_scientist:
+    career_name: Data Scientist
+    title_aliases:
+      - Data Scientist
+      - Applied Data Scientist
+    queries:
+      - Data Scientist
+      - Junior Data Scientist
+  data_analyst:
+    career_name: Data Analyst
+    title_aliases:
+      - Data Analyst
+      - BI Analyst
+      - Business Intelligence Analyst
+    queries:
+      - Data Analyst
+      - Business Intelligence Analyst
+  analytics_engineer:
+    career_name: Analytics Engineer
+    title_aliases:
+      - Analytics Engineer
+      - Data Analytics Engineer
+    queries:
+      - Analytics Engineer
+      - Data Analytics Engineer
