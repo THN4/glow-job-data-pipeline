@@ -8,16 +8,22 @@ Run them from the `data-pipeline/` repository root with `python -m`.
 | `scripts.market` | JSearch extraction/replay, full pipeline, skill catalog review, skill loading, and career-skill aggregation. |
 | `scripts.database` | Database migration and schema operations shared across domains. |
 | `scripts.resume` | Resume extraction CLI, API-flow client, and Gemini quality evaluator. |
-| `scripts.documents` | Reserved for learning-document workflows when those commands are implemented. |
+| `scripts.documents` | Crawl/review/parse/chunk/load learning documents into the shared knowledge database. |
 
 Examples:
 
 ```powershell
 python -m scripts.market.main --help
 python -m scripts.market.run_pipeline --help
+python -m scripts.market.run_scheduled_pipeline --live --dry-run
 python -m scripts.market.review_skill_catalog_preview --summary
 python -m scripts.database.migrate
 ```
+
+For the complete EC2 worker command, S3/local recovery, run journals and locking,
+see the [scheduled Market pipeline guide](../docs/market/scheduled-pipeline-guide.md).
+Its Linux wrapper is `scripts/market/run_scheduled_pipeline.sh`. The older
+`run_scheduled_ingestion.sh` only starts extraction.
 
 Run a CV directly through preprocessing, the configured model provider, and
 post-processing with:

@@ -8,7 +8,7 @@ The document pipeline prepares and retrieves evidence. It does not, by itself, d
 
 ## 2. Current status
 
-The reviewed demo corpus has completed source discovery, page review, approved-HTML parsing, chunking, canonical-skill checks, database loading, and Gemini Embedding 2 embedding in PostgreSQL/pgvector. A command-line vector-search prototype is available. The corpus can be expanded by repeating the same review and ingestion flow for additional or updated documents.
+The reviewed demo corpus has completed source discovery, page review, approved-HTML parsing, chunking, canonical-skill checks, and database loading in PostgreSQL/pgvector. Nova Multimodal Embeddings (1,024 dimensions) are stored in a new vector column alongside legacy Gemini vectors during migration. A command-line vector-search prototype uses the Nova column.
 
 Systematic retrieval evaluation, relevance thresholds or reranking, context assembly, LLM answer generation with citations, evidence-backed dependency proposals and review, learning modules, and roadmap-agent integration are follow-up work. See the [RAG specification](skill-knowledge-rag-spec.md) for requirements and phases.
 
@@ -25,7 +25,7 @@ flowchart TD
     G --> H[Review topics, content, size, provenance, flags]
     H --> I[Check skill labels against canonical catalog and aliases]
     I --> J[Preview and load sources, chunks, skill links]
-    J --> K[Embed pending chunks with Gemini Embedding 2]
+    J --> K[Embed pending chunks with Nova Multimodal Embeddings]
     K --> L[Check embedding completeness and dimensions]
     L --> M[Semantic retrieval by query and optional skill]
     M --> N[Future: assemble cited context and generate RAG answer]
@@ -146,7 +146,7 @@ Generate and store vectors with:
 python -m scripts.documents.embed_chunks --apply
 ```
 
-The demo uses Gemini Embedding 2 at 768 dimensions. Each document embedding uses the title and chunk text; the script paces requests using a token estimate and commits completed batches so a later run can resume. New documents with the same model and dimension need embeddings only for new or changed chunks. If the embedding model or dimensions change, vectors being searched together must be made compatible.
+The embedding script defaults to Gemini Embedding 2 at 768 dimensions and stores vectors in the existing Gemini column. `--provider nova` selects the optional Nova Multimodal Embeddings path (1,024 dimensions), stored separately. Each path commits completed batches so a later run can resume.
 
 ### 4.9 Check and retrieve
 
@@ -199,7 +199,7 @@ The current document/search workflow does not automatically extract or persist d
 | Chunks and vectors | `knowledge.knowledge_chunks` | Searchable text, topic, metadata, model name, and embedding. |
 | Chunk-to-skill links | `knowledge.knowledge_chunk_skills` | Canonical many-to-many mapping from chunks to skills. |
 
-The database stores the searchable source metadata and chunks; the crawl and review manifests and parsed/chunk artifacts remain files. The current parser refetches approved HTML and does not archive a full copy of every original web page in PostgreSQL.
+The database stores searchable source metadata, parsed knowledge chunks, and their embeddings. Crawl candidates and review/parse/chunk artifacts remain local working files; this document workflow does not upload them to S3. The parser refetches approved HTML and verifies its reviewed content hash rather than keeping a second raw-page archive.
 
 ## 8. Related documents
 

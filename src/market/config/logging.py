@@ -1,4 +1,4 @@
-﻿"""Shared logging setup for pipeline entry points."""
+"""Shared logging setup for pipeline entry points."""
 
 import logging
 import os

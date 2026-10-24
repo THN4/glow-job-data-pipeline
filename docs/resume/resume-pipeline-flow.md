@@ -11,7 +11,8 @@ itself does not connect to PostgreSQL.
 flowchart TD
     A[User selects PDF or image in UI] --> B[Backend creates temporary upload]
     B --> C[Backend receives file bytes and checks size/type]
-    C --> D[Create extraction job and enqueue]
+    C --> D[Create extraction job and enqueue with anonymous session ID]
+    D --> D1[DB configured: persist app.resumes metadata + app.resume_extractions job]
     D --> E[Read temporary file and calculate cache key]
     E --> F{Matching cached result?}
     F -->|Yes| G[Return cached extraction result]
@@ -25,10 +26,12 @@ flowchart TD
     M --> N{Valid CV schema and is a CV?}
     N -->|No| O[Return typed extraction error]
     N -->|Yes| P[Postprocess, validate/normalize, derive facts]
-    P --> Q[Return extracted profile plus provenance/review flags]
-    Q --> R[Backend loads core skill catalog]
-    R --> S[Exact canonical/alias matching for technical skills and tools]
-    S --> T[UI displays profile for user review/edit]
+    P --> Q[Persist structured result and model/prompt versions; no raw CV text]
+    Q --> Q1[Delete temporary CV and record deletion time]
+    Q --> R[Return extracted profile plus provenance/review flags]
+    R --> S[Backend loads core skill catalog]
+    S --> S1[Exact canonical/alias matching for technical skills and tools]
+    S1 --> T[UI displays profile for user review/edit]
     T --> U{User confirms profile?}
     U -->|No| V[User edits or abandons; no confirmed profile save]
     U -->|Yes| W[Backend clears client match claims and rematches]
@@ -41,9 +44,12 @@ flowchart TD
 ### 1. Upload and create an extraction job (host Backend)
 
 The UI uploads a supported PDF/JPEG/PNG/WebP using the Backend's upload
-endpoints. The Backend validates declared MIME type, file size, actual file
-bytes, and upload existence. It stores the upload temporarily, creates a job,
-and queues it in the local in-process worker. This is upload/job orchestration,
+endpoints and sends its anonymous session ID when starting and polling a job.
+The Backend validates declared MIME type, file size, actual file bytes, and
+upload existence. It stores the upload temporarily, creates a job, and queues
+it in the local in-process worker. When DB settings are present, it also creates
+an anonymous user if needed and persists upload metadata and the extraction job
+in `app.resumes` / `app.resume_extractions`. This is upload/job orchestration,
 not functionality inside `data-pipeline/src/resume`.
 
 ### 2. Cache check and safe temporary-file handling (host Backend)
@@ -94,8 +100,11 @@ skills.
 
 The response also includes provider/model, prompt/schema/processing versions,
 duration, input kind, partial-document status, warnings, and a review count.
-The extraction result is cached/job-scoped by the Backend for the current
-workflow; it is not yet a confirmed saved profile.
+When DB is configured, the structured result and model/prompt/schema versions
+are also retained in `app.resume_extractions.extracted_json`. Original CV bytes
+and extracted raw document text are not retained. Without DB settings, the
+development fallback keeps jobs in memory. The result is not yet a confirmed
+saved profile.
 
 ### 6. Match extracted skills to Market's catalog (host Backend + shared code)
 

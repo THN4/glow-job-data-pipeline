@@ -37,15 +37,16 @@ def test_empty_text_rejected():
 
 def test_rag_model_and_unchanged_prompt(monkeypatch):
     monkeypatch.setattr(bedrock, "BedrockTextSettings", lambda: Mock(
-        AWS_DEFAULT_REGION="us-east-1", AWS_REGION=None, BEDROCK_RAG_MODEL="amazon.nova-pro-v1:0"))
+        AWS_DEFAULT_REGION="us-east-1", AWS_REGION=None,
+        model_id="us.amazon.nova-2-lite-v1:0"))
     client = Mock()
     client.converse.return_value = {"stopReason": "end_turn", "output": {"message": {"content": [{"text": "{}"}]}}}
     factory = Mock(return_value=client)
     monkeypatch.setattr(bedrock, "create_bedrock_client", factory)
     assert bedrock.bedrock_generate("Original evidence prompt") == "{}"
-    factory.assert_called_once_with(region="us-east-1")
+    factory.assert_called_once_with(region="us-east-1", timeout_ms=90_000)
     request = client.converse.call_args.kwargs
-    assert request["modelId"] == "amazon.nova-pro-v1:0"
+    assert request["modelId"] == "us.amazon.nova-2-lite-v1:0"
     assert request["messages"][0]["content"] == [{"text": "Original evidence prompt"}]
     client.close.assert_called_once()
 

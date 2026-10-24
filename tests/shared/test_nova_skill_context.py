@@ -9,8 +9,6 @@ import pytest
 
 from src.documents.retrieval import skill_context as context
 from src.documents.schemas.skill_context import ContextRequest, RetrievedChunk
-from src.shared.llm import bedrock_client, gemini_client
-
 QUOTE = "Git records changes to files in a repository."
 
 
@@ -27,7 +25,7 @@ def review(quote=QUOTE):
 
 def test_default_review_calls_nova_and_repairs_nonverbatim_citation(monkeypatch):
     generate = Mock(side_effect=[review("This quote was invented by the model."), review()])
-    monkeypatch.setattr(bedrock_client, "bedrock_generate", generate)
+    monkeypatch.setattr(context, "nova_generate", generate)
     result = context.review_content({"skill_id": 1, "skill_name": "Git"},
         ContextRequest(skill_ids=[1]), "Git fundamentals", [chunk()])
     assert result.claims[0].citations[0].quote == QUOTE
@@ -40,7 +38,7 @@ def test_default_review_calls_nova_and_repairs_nonverbatim_citation(monkeypatch)
 
 def test_review_still_rejects_unverifiable_claims(monkeypatch):
     generate = Mock(return_value=review("This quote was invented by the model."))
-    monkeypatch.setattr(bedrock_client, "bedrock_generate", generate)
+    monkeypatch.setattr(context, "nova_generate", generate)
     with pytest.raises(ValueError, match="not verbatim"):
         context.review_content({"skill_id": 1, "skill_name": "Git"},
             ContextRequest(skill_ids=[1]), "Git", [chunk()])
@@ -54,12 +52,13 @@ def test_query_embedding_still_uses_original_gemini_model_and_dimensions(monkeyp
     owner = Mock()
     owner.__enter__ = Mock(return_value=client)
     owner.__exit__ = Mock(return_value=False)
-    monkeypatch.setattr(gemini_client, "create_gemini_client", Mock(return_value=owner))
+    monkeypatch.setattr(context, "create_gemini_client", Mock(return_value=owner))
     vector = context.embed_query("Git fundamentals")
     request = client.models.embed_content.call_args.kwargs
     assert request["model"] == "gemini-embedding-2"
     assert request["config"].output_dimensionality == 768
-    assert request["contents"] == "task: search result | query: Git fundamentals"
+    assert request["contents"] == "Git fundamentals"
+    assert request["config"].task_type == "RETRIEVAL_QUERY"
     assert len(vector.strip("[]").split(",")) == 768
 
 
@@ -67,9 +66,9 @@ def test_context_metadata_reports_nova_and_gemini_separately(monkeypatch):
     monkeypatch.setattr(context, "lookup_verified", lambda conn: [])
     monkeypatch.setattr(context, "coverage", lambda conn, ids: {
         1: {"skill_id": 1, "skill_name": "Git", "mapped_chunks": 0, "embedded_chunks": 0}})
-    monkeypatch.setattr(bedrock_client, "BedrockTextSettings", lambda: SimpleNamespace(
-        BEDROCK_RAG_MODEL="amazon.nova-pro-v1:0"))
+    monkeypatch.setattr(context, "BedrockTextSettings", lambda: SimpleNamespace(
+        model_id="us.amazon.nova-2-lite-v1:0"))
     result = context.prepare_context(None, ContextRequest(skill_ids=[1]), text_review=True)
-    assert result.text_model == "amazon.nova-pro-v1:0"
+    assert result.text_model == "us.amazon.nova-2-lite-v1:0"
     assert result.embedding_model == "gemini-embedding-2"
     assert result.embedding_dimensions == 768

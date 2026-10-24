@@ -11,7 +11,7 @@ different source data and have different owners for database writes.
 flowchart LR
     subgraph Market[Market pipeline — data-pipeline]
         J[JSearch job postings] --> M[Validate, clean, deduplicate, map careers]
-        M --> ME[Gemini extracts skills from job descriptions]
+        M --> ME[Nova 2 Lite extracts skills from job descriptions]
         ME --> MC[Checkpoint and deterministic catalog matching]
         MC --> ML[Load job postings and matched skills]
         ML --> MA[Aggregate market demand]
@@ -20,7 +20,7 @@ flowchart LR
     subgraph Resume[Resume pipeline — shared extractor plus host Backend]
         CV[User CV upload] --> RP[Backend upload/job orchestration]
         RP --> PRE[Resume preprocessor in data-pipeline]
-        PRE --> RE[Gemini extracts structured profile]
+        PRE --> RE[Nova 2 Lite extracts structured profile]
         RE --> POST[Resume postprocess and evidence/review flags]
         POST --> CAT[Backend matches technical skills/tools]
         CAT --> UI[User reviews and confirms profile]
@@ -28,7 +28,7 @@ flowchart LR
     end
 
     subgraph Shared[Shared components]
-        GEM[Gemini client/model configuration]
+        GEM[Bedrock Nova 2 Lite text client]
         NORM[Shared deterministic skill normalizer]
         CORE[(PostgreSQL core.skills and core.skill_aliases)]
     end
@@ -42,8 +42,8 @@ flowchart LR
     SAVE --> APPDB[(PostgreSQL app schema when configured)]
 ```
 
-**What intersects:** both paths use the shared Gemini model/client configuration
-and the same deterministic skill-name matching rules. They can read the same
+**What intersects:** both paths use Nova 2 Lite for text generation and the same
+deterministic skill-name matching rules. Gemini Embedding 2 is used for vector retrieval. They can read the same
 `core.skills` / `core.skill_aliases` catalog, so a CV label and a job-posting
 label can resolve to the same canonical skill ID. Catalog matching does not
 create catalog entries from CVs.
@@ -61,7 +61,7 @@ and [Resume flow](docs/resume/resume-pipeline-flow.md).
 
 | Shared area | Market pipeline | Resume pipeline |
 |---|---|---|
-| Gemini | Extracts skills and evidence from job descriptions. | Extracts a structured candidate profile from CV pages. |
+| Nova 2 Lite | Extracts skills and evidence from job descriptions. | Extracts a structured candidate profile from CV pages. |
 | Extraction contract | Market-specific skill requirements and evidence. | Resume-specific education, experience, projects, skills, and other profile facts. |
 | Skill normalization | Matches extracted JD labels to canonical skills/aliases before loading. | Backend matches only technical skills and tools; preserves the CV label and flags unmatched values. |
 | Database catalog | Reads `core.skills` and `core.skill_aliases`; writes matched IDs into `market.job_skills`. | Reads the same catalog through the Backend adapter; does not create catalog entries. |
@@ -69,7 +69,7 @@ and [Resume flow](docs/resume/resume-pipeline-flow.md).
 
 Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
 
-The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Gemini keeps evidence-backed raw results in checkpoints. A clean catalog rebuild re-extracts skills from saved job descriptions, proposes canonical names for review, and only writes the catalog after review and explicit apply. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [market-pipeline-spec.md](docs/market/market-pipeline-spec.md), and branch conventions are in [git-workflow.md](docs/architecture/git-workflow.md).
+The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Nova 2 Lite keeps evidence-backed raw results in checkpoints. A clean catalog rebuild re-extracts skills from saved job descriptions, proposes canonical names for review, and only writes the catalog after review and explicit apply. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [market-pipeline-spec.md](docs/market/market-pipeline-spec.md), and branch conventions are in [git-workflow.md](docs/architecture/git-workflow.md).
 
 ## Local setup
 
@@ -111,13 +111,13 @@ must have AWS credentials through its normal AWS credential chain; on EC2, use
 an instance profile with `s3:PutObject` access scoped to this bucket/prefix.
 When `RAW_S3_BUCKET` is blank, local storage under `data/raw/` remains active.
 
-To extract skills from an existing raw run, set `GEMINI_API_KEY` in `.env` and run:
+To extract skills from an existing raw run, set `AWS_BEARER_TOKEN_BEDROCK` (or AWS credentials) in `.env` and run:
 
 ```shell
 python -m scripts.market.main --replay-run-id 20260928T120000000000Z --extract-skills --skill-limit 2
 ```
 
-Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Gemini reads the cleaned JD and returns raw skill names with supporting evidence. During normal runtime, the pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). For the clean catalog rebuild, use the dedicated prepare/review/apply flow below instead of seeding skill names from a YAML file. New Gemini requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Gemini HTTP 429 currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check your project's active limits in Google AI Studio. These JSON files are local checkpoints for review, not database records.
+Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Nova 2 Lite reads the cleaned JD and returns raw skill names with supporting evidence. During normal runtime, the pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). For the clean catalog rebuild, use the dedicated prepare/review/apply flow below instead of seeding skill names from a YAML file. New Nova 2 Lite requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Bedrock throttling error currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check the Bedrock model access and quota for your AWS account. These JSON files are local checkpoints for review, not database records.
 
 ## Local PostgreSQL
 
@@ -134,9 +134,9 @@ The seed command upserts configured career names and creates one `general` profi
 
 ## Clean skill-catalog rebuild
 
-The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The command below calls Gemini again for every saved posting, creates concise candidate groups, and asks Gemini to propose canonical names. No database rows change during preparation or review. Without `--force-all-extraction`, completed checkpoints from the current prompt version are reused.
+The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The command below calls Nova 2 Lite again for every saved posting, creates concise candidate groups, and asks Nova 2 Lite to propose canonical names. No database rows change during preparation or review. Without `--force-all-extraction`, completed checkpoints from the current prompt version are reused.
 
-1. Prepare fresh extraction and a new candidate preview (requires `GEMINI_API_KEY`):
+1. Prepare fresh extraction and a new candidate preview (requires Bedrock access configured in `.env`):
 
    ```shell
    python -m scripts.market.rebuild_skill_catalog_from_checkpoints --prepare-only --reextract --force-all-extraction
@@ -190,15 +190,34 @@ After running migrations, seeding career reference data, and applying the review
 python -m scripts.market.run_pipeline --replay-run-id 20260927T172453146903Z --replay-query-count 6 --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at --skill-limit 2
 ```
 
-The example's first two jobs already have completed skill extraction results, so replay skips JSearch and does not repeat those extraction requests. Unknown skill names remain in the extraction checkpoint for the separate catalog preview and review flow. That older raw run contains six queries; `--replay-query-count 6` preserves its completeness check after new careers are added to the configuration. New runs use the current query count automatically. Replay may call Gemini for jobs beyond the completed extraction checkpoint, but it does not resolve skill candidates or write new skills to PostgreSQL. Omit `--skill-limit` to process the full raw run; a limit selects the first N career-mapped jobs overall, not N jobs per career. A limit smaller than an existing checkpoint is rejected to protect saved progress.
+The example's first two jobs already have completed skill extraction results, so replay skips JSearch and does not repeat those extraction requests. Unknown skill names remain in the extraction checkpoint for the separate catalog preview and review flow. That older raw run contains six queries; `--replay-query-count 6` preserves its completeness check after new careers are added to the configuration. New runs use the current query count automatically. Replay may call Nova 2 Lite for jobs beyond the completed extraction checkpoint, but it does not resolve skill candidates or write new skills to PostgreSQL. Omit `--skill-limit` to process the full raw run; a limit selects the first N career-mapped jobs overall, not N jobs per career. A limit smaller than an existing checkpoint is rejected to protect saved progress.
 
-To start a new run with JSearch and Gemini, use `--live` instead of `--replay-run-id`:
+To start a new run with JSearch and Nova 2 Lite, use `--live` instead of `--replay-run-id`:
 
 ```shell
 python -m scripts.market.run_pipeline --live --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at
 ```
 
-The command prints the run ID and per-stage counts. If skill extraction is incomplete, it stops before loading and aggregation; successful jobs remain in the checkpoint so you can resume with `--replay-run-id <run_id>`. The aggregation window includes every eligible posting currently loaded in the database, including postings from earlier runs. Run `python -m scripts.market.seed_reference_data` after adding careers and before loading their postings. The current six-career configuration makes 14 JSearch search queries per live run, requesting up to two pages per query, followed by Gemini requests for jobs that pass validation. Scheduling, cloud storage, and monitoring are separate later tasks.
+The command prints the run ID and per-stage counts. If skill extraction is incomplete, it stops before loading and aggregation; successful jobs remain in the checkpoint so you can resume with `--replay-run-id <run_id>`. The aggregation window includes every eligible posting currently loaded in the database, including postings from earlier runs. Run `python -m scripts.market.seed_reference_data` after adding careers and before loading their postings. The current six-career configuration makes 14 JSearch search queries per live run, requesting up to two pages per query, followed by Nova 2 Lite requests for jobs that pass validation. Scheduling, cloud storage, and monitoring are separate later tasks.
+
+## Scheduled EC2 pipeline command
+
+The [scheduled Market pipeline guide](docs/market/scheduled-pipeline-guide.md)
+documents a complete single-worker entry point with an offline plan, S3 plus
+local raw copies, resumable ingestion/skill checkpoints, a worker lock and
+per-attempt logs/journals:
+
+```shell
+python -m scripts.market.run_scheduled_pipeline --live --dry-run
+python -m scripts.market.run_scheduled_pipeline --live
+python -m scripts.market.run_scheduled_pipeline --resume-run-id YOUR_RUN_ID
+```
+
+Run from this repository with dependencies and `.env` configured. The live command
+defaults to S3 and requires `RAW_S3_BUCKET`; choose `--raw-storage local` explicitly
+for local-only storage. It uses an inclusive UTC statistics window ending today,
+defaulting to `validation.time_window_days`, and `first_seen_at` as the date basis.
+EC2/cron deployment and external alerting remain separate setup steps.
 
 ## Layout
 

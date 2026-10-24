@@ -11,7 +11,7 @@ queue. Document-derived learning recommendations are labeled inferred; only
 directly supported claims may be explicit prerequisites.
 
 A bounded skill-knowledge preview now combines skill-filtered semantic retrieval
-with shared Gemini text review and exact citation/quote checks. Pipeline-owned
+with shared Nova 2 Lite text review and exact citation/quote checks. Pipeline-owned
 `src/documents/retrieval/skill_context.py` supplies typed Context for explicitly
 selected main skills. Foundation skills without mapped teaching content remain
 mentions with an unavailable-content notice. Topic outlines are separated from
@@ -23,7 +23,7 @@ registry; its status remains `preview_pending_policies`, not a generated Roadmap
 
 This document defines the MVP scope for collecting curated skill documents, preparing searchable chunks, and supplying cited context to Glow-Job's roadmap agent.
 
-**Current status:** The current reviewed demo corpus has been crawled from bounded YAML sources, reviewed, parsed from approved HTML, chunked, loaded into the knowledge tables, and embedded with Gemini Embedding 2 (768 dimensions) in PostgreSQL/pgvector. The original `search_chunks` command returns ranked excerpts. The separate bounded knowledge-Context service now supports shared Gemini text review, instructional/outline distinctions, exact citations, and explicit content gaps. Systematic retrieval evaluation and calibrated production thresholds remain open. Learning-module curation and roadmap-agent integration remain future work; the dependency-review workflow is described below.
+**Current status:** The reviewed demo corpus is stored in PostgreSQL/pgvector. Gemini Embedding 2 vectors (768 dimensions) are used by retrieval; the optional Nova Multimodal embeddings remain in a separate column. The `search_chunks` command returns ranked excerpts. The separate bounded knowledge-Context service supports Gemini retrieval, Nova 2 Lite text review, instructional/outline distinctions, exact citations, and explicit content gaps. Systematic retrieval evaluation and calibrated production thresholds remain open. Learning-module curation and roadmap-agent integration remain future work; the dependency-review workflow is described below.
 
 An initial [dependency proposal/review CLI](skill-dependency-review-guide.md) now
 supports bounded document evidence, checkpointed human decisions, explicit apply
@@ -139,7 +139,7 @@ Use core.skills as the canonical skill catalog. Keep source_id and chunk-to-skil
 
 Do not add columns just because a parser can produce them. For MVP, source-level details such as document format, source version, and source content hash belong in an ingestion manifest stored with the source file or source registry artifact. Per-chunk details such as language, heading path, page number, chunk hash, and parser details may use the existing knowledge_chunks.metadata JSONB field. Promote a value to a dedicated column only when a concrete query or integrity requirement needs it and the DBML and migration are updated together.
 
-The migration set enables pgvector and creates the MVP source and chunk tables. The demo embedding configuration is Gemini Embedding 2 with 768 output dimensions; the database column is `vector(768)`. Keep the configured model and SQL dimension in sync. Before applying migrations:
+The migration set enables pgvector and creates the MVP source and chunk tables. Migration `021` adds a separate Nova vector column with 1,024 dimensions; the legacy Gemini column remains `vector(768)` during backfill. Keep each configured model and SQL dimension in sync. Before applying migrations:
 
 - Confirm the PostgreSQL environment supports the vector extension.
 - Make any SQL vector dimension and operator/index configuration agree with the configured model.
@@ -189,7 +189,7 @@ Metadata must not replace the source foreign key or the canonical skill mappings
 
 ## 10. Embeddings and vector index
 
-Generate an embedding for each cleaned chunk using the Gemini Embedding 2 document format `title: {title} | text: {content}` and store the model identifier with it. At query time, format the search text as `task: search result | query: {query}`. The chunk content is what the language model reads; the embedding is used for similarity search. The SQL column is `vector(768)`, so verify the returned vector length before writing it.
+Generate each document vector with Amazon Nova Multimodal Embeddings using `GENERIC_INDEX` and the text `title: {title} | text: {content}`. At query time use the `TEXT_RETRIEVAL` purpose. Store the model identifier and vector in the Nova columns. Verify the returned vector length is 1,024 before writing it; reject responses that report truncation.
 
 All vectors searched together must use a compatible model and dimension. If the model changes, re-embed the affected chunks before searching them together. Do not mix incompatible vector dimensions or silently reuse vectors produced by a different model.
 
@@ -252,6 +252,14 @@ The context builder combines retrieved chunks with user profile, target career, 
 
 The roadmap agent receives the assembled agent context. It does not parse documents or query pgvector directly.
 
+For persistence, keep curated document source/chunk/vector records in PostgreSQL
+(`knowledge.*`). Document review/parse/chunk artifacts remain local and this
+workflow does not upload them to S3. The per-generation assembled Agent
+Context already belongs in `app.roadmap_generations.agent_context` in RDS; do
+not duplicate that user-specific snapshot to S3 by default. It contains a
+reproducible context for that roadmap run, while retrieved source chunks remain
+shared knowledge data.
+
 ## 15. Evaluation and acceptance criteria
 
 Prepare a small set of representative queries covering missing skills, level gaps, and explicit prerequisite lookup. Review retrieval results manually before connecting them to roadmap generation. This evaluation has not yet been completed systematically for the current corpus.
@@ -295,6 +303,6 @@ The AI/roadmap agent owns reasoning, prioritization based on supplied structured
 
 ## 18. Implementation boundary
 
-This document separates implemented ingestion/retrieval foundations from the remaining RAG and roadmap work. The current implementation covers bounded HTML discovery, manual page review, approved HTML parsing, chunk generation, knowledge persistence, Gemini Embedding 2 vectors, basic semantic search, document-grounded dependency proposal/review/apply, and bounded cited knowledge preparation. The host assembles that knowledge with saved user and Market inputs. Systematic retrieval evaluation, calibrated relevance policies, learning-module extraction, and roadmap-agent integration remain open.
+This document separates implemented ingestion/retrieval foundations from the remaining RAG and roadmap work. The current implementation covers bounded HTML discovery, manual page review, approved HTML parsing, chunk generation, knowledge persistence, Nova Multimodal Embeddings, basic semantic search, document-grounded dependency proposal/review/apply, and bounded cited knowledge preparation. The host assembles that knowledge with saved user and Market inputs. Systematic retrieval evaluation, calibrated relevance policies, learning-module extraction, and roadmap-agent integration remain open.
 
 Implementation should extend the existing documents scaffold and reuse the existing database model. Any schema change must be reflected in the knowledge DBML and migration together; do not create a parallel schema or redesign the tables without a demonstrated requirement. New documents should follow the existing review, parse, chunk, load, and embedding workflow. When model or vector dimensions change, preserve compatibility by re-embedding affected corpus vectors before searching them together.

@@ -1,4 +1,4 @@
-﻿"""Local entry point for extracting or replaying raw job data."""
+"""Local entry point for extracting or replaying raw job data."""
 
 import argparse
 import logging
@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from src.market.config.logging import configure_logging
 from src.market.config.settings import load_settings
@@ -35,13 +36,17 @@ def main(
     raw_output_dir: Path = Path("data/raw"),
     raw_s3_bucket: str | None = None,
     raw_s3_prefix: str = "raw/jsearch",
+    resume_raw: bool = False,
     company_review_output_dir: Path = Path(
         "data/processed/company_match_candidates"
     ),
+    artifact_saved: Callable[[str, Path], None] | None = None,
 ) -> list[dict[str, object]]:
-    """Prepare job records and optionally extract their skills with Gemini."""
+    """Prepare job records and optionally extract their skills with Nova 2 Lite."""
     if replay_run_id is not None and new_run_id is not None:
         raise ValueError("Choose either replay_run_id or new_run_id")
+    if resume_raw and (replay_run_id is not None or new_run_id is None):
+        raise ValueError("resume_raw requires a new_run_id and cannot use strict replay")
     if replay_query_count is not None and (
         replay_run_id is None
         or isinstance(replay_query_count, bool)
@@ -92,12 +97,14 @@ def main(
                 run_id=run_id,
                 s3_bucket=s3_bucket,
                 s3_prefix=s3_prefix,
+                **({"resume_raw": True} if resume_raw else {}),
             )
         else:
             results = extract_jobs(
                 settings,
                 output_dir=raw_output_dir,
                 run_id=run_id,
+                **({"resume_raw": True} if resume_raw else {}),
             )
         logger.info("Extraction completed: %d query responses received", len(results))
 
@@ -166,6 +173,8 @@ def main(
     )
     if review_report is not None:
         logger.info("Company match review report saved: %s", review_report)
+        if artifact_saved:
+            artifact_saved("company_candidates.csv", review_report)
 
     career_mapped_jobs = map_careers(normalized_jobs, settings.careers)
     career_status_counts = Counter(
@@ -237,13 +246,17 @@ def main(
                 saved_jobs[index] = result
             else:
                 saved_jobs.append(result)
-            save_skill_results(
+            checkpoint_path = save_skill_results(
                 saved_jobs, run_id=active_run_id, output_dir=skill_output_dir
             )
+            if artifact_saved:
+                artifact_saved("skill_checkpoint.json", checkpoint_path)
             skill_jobs.append(result)
 
         if not saved_jobs:
-            save_skill_results([], run_id=active_run_id, output_dir=skill_output_dir)
+            checkpoint_path = save_skill_results([], run_id=active_run_id, output_dir=skill_output_dir)
+            if artifact_saved:
+                artifact_saved("skill_checkpoint.json", checkpoint_path)
         skill_status_counts = Counter(
             entry.get("extraction_status") for entry in skill_jobs
         )
@@ -256,9 +269,11 @@ def main(
         if skill_jobs:
             catalog = load_skill_catalog()
             skill_jobs = normalize_skills_for_jobs(skill_jobs, catalog)
-            save_skill_results(
+            checkpoint_path = save_skill_results(
                 skill_jobs, run_id=active_run_id, output_dir=skill_output_dir
             )
+            if artifact_saved:
+                artifact_saved("skill_checkpoint.json", checkpoint_path)
             logger.info(
                 "Skill normalization completed: matched=%d, unmatched=%d",
                 sum(len(entry["normalized_skills"]) for entry in skill_jobs),
@@ -286,7 +301,7 @@ def cli() -> None:
     parser.add_argument(
         "--extract-skills",
         action="store_true",
-        help="Call Gemini once for each unique job after career mapping.",
+        help="Call Nova 2 Lite once for each unique job after career mapping.",
     )
     parser.add_argument(
         "--skill-limit",
@@ -297,7 +312,7 @@ def cli() -> None:
         "--skill-request-interval",
         type=float,
         default=10.0,
-        help="Minimum seconds between starts of new Gemini requests (default: 10).",
+        help="Minimum seconds between starts of new Nova 2 Lite requests (default: 10).",
     )
     arguments = parser.parse_args()
     result = main(

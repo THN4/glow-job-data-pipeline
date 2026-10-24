@@ -21,6 +21,7 @@ def test_validate_jobs_keeps_valid_job_and_query_metadata() -> None:
     settings = load_settings()
     settings = replace(
         settings,
+        search=replace(settings.search, posted_within_days=None),
         validation=replace(settings.validation, minimum_description_length=50),
     )
     raw_results = [
@@ -69,6 +70,7 @@ def test_validate_jobs_reports_reasons_for_invalid_job() -> None:
     settings = load_settings()
     settings = replace(
         settings,
+        search=replace(settings.search, posted_within_days=None),
         validation=replace(settings.validation, minimum_description_length=50),
     )
     invalid_job = _job(
@@ -118,6 +120,7 @@ def test_validate_jobs_accepts_provider_id_fallback_and_unix_timestamp() -> None
 
 def test_validate_jobs_infers_country_from_explicit_location_marker() -> None:
     settings = load_settings()
+    settings = replace(settings, search=replace(settings.search, posted_within_days=None))
     job = _job(
         job_country="",
         job_country_code=None,
@@ -160,6 +163,7 @@ def test_validate_jobs_does_not_infer_country_from_city_alone() -> None:
 
 def test_validate_jobs_accepts_relative_posting_date_using_collection_time() -> None:
     settings = load_settings()
+    settings = replace(settings, search=replace(settings.search, posted_within_days=None))
     collected_at = "2026-10-03T12:00:00+00:00"
     job = _job(
         job_posted_at_datetime_utc=None,
@@ -173,6 +177,23 @@ def test_validate_jobs_accepts_relative_posting_date_using_collection_time() -> 
 
     assert len(valid_jobs) == 1
     assert invalid_jobs == []
+
+
+def test_recent_only_search_filters_old_and_undated_provider_jobs() -> None:
+    settings = load_settings()
+    collected_at = "2026-10-24T12:00:00+00:00"
+    jobs = [
+        _job(job_id="recent", job_posted_at_datetime_utc=None, job_posted_at="4 วันที่ผ่านมา"),
+        _job(job_id="old", job_posted_at_datetime_utc=None, job_posted_at="8 วันที่ผ่านมา"),
+        _job(job_id="undated", job_posted_at_datetime_utc=None, job_posted_at=None),
+    ]
+    valid, invalid = validate_jobs(
+        [{"collected_at": collected_at, "response": {"data": {"jobs": jobs}}}],
+        settings,
+    )
+    assert [entry["job"]["job_id"] for entry in valid] == ["recent"]
+    assert invalid[0]["errors"] == ["posted date is older than 7 days"]
+    assert invalid[1]["errors"] == ["missing posted date for recent-only search"]
 
 
 def test_validate_jobs_rejects_unsupported_relative_posting_date() -> None:

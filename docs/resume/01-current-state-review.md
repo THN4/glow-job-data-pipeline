@@ -29,7 +29,7 @@ are in [`docs/cv-extraction/`](../../../docs/cv-extraction/).
 ```text
 Backend upload endpoint
   → temporary local upload store
-  → in-memory job queue
+  → in-process job queue (DB-backed job/result when configured)
   → cache lookup by file hash plus provider/configuration/version identity
   → PDF/image preprocessing
   → one model request for the whole document
@@ -64,7 +64,7 @@ post-processing stages without going through the API.
 | Medium | Text grounding is partial and heuristic. | `make_grounder()` checks selected key fields and uses token overlap for longer strings. Skills use aliases; most descriptions/highlights are not grounded field by field. | Some hallucinations may be missed; loose matching can also accept a value based on partial overlap. Image results have no equivalent check. |
 | Resolved | The prompt did not explicitly require atomic skill entries or hostile-document handling. | The current resume prompt treats CV text/images as untrusted source content, directs the model to ignore embedded instructions, and requires separate atomic skill/tool/technology items. It also tells the model not to infer content from omitted pages. | This reduces prompt-injection risk and composite skill names. It does not replace output evaluation or deterministic validation. |
 | Medium | Progress stages are simulated while a single model call runs. | The backend advances `skills`, `education`, and `experience` by timer rather than receiving model stage events. | The UI can imply that sections are actually complete when the model is still processing the whole document. |
-| Resolved for profile persistence | The original persistence path was local-only. | When DB connection settings are present, the host Backend's `DatabaseProfilesRepo` transactionally stores confirmed anonymous profiles in `app.*`; without DB settings, its local-development fallback writes JSON. Uploads/jobs/cache remain temporary/in-memory. | Confirmed profile data can be persisted to PostgreSQL. Durable distributed job queues, object storage, and authenticated accounts remain separate platform concerns. |
+| Resolved for profile and extraction persistence | The original persistence path was local-only for confirmed profiles and in-memory for extraction jobs. | With DB settings and migration `022_persist_resume_extraction_jobs.sql`, `DatabaseJobsRepo` stores anonymous job status, model/version metadata, and structured extraction JSON. The uploaded CV is deleted after the attempt. `DatabaseProfilesRepo` separately saves the confirmed profile; without DB settings, development uses an in-memory job store and local JSON profile file. | Extraction status/results survive Backend restarts, while the source CV remains temporary. A distributed queue, object storage for CVs, and authenticated accounts remain separate platform concerns. |
 | Low | Supported file and layout behavior is implicit in code and scattered notes. | The parser supports PDF, JPEG, PNG, and WEBP. DOC/DOCX is not supported. Page limits and image behavior are configured through settings. | Callers can expect unsupported formats or assume all pages are analyzed unless the contract is stated in one place. |
 
 ## Conclusions

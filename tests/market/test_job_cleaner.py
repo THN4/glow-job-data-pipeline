@@ -23,6 +23,14 @@ def _valid_job(**overrides: object) -> dict[str, object]:
     return job
 
 
+def _settings_without_recent_search_filter():
+    settings = load_settings()
+    return replace(
+        settings,
+        search=replace(settings.search, posted_within_days=None),
+    )
+
+
 def test_clean_jobs_cleans_text_and_keeps_metadata_and_source_unchanged() -> None:
     settings = load_settings()
     settings = replace(
@@ -63,7 +71,7 @@ def test_clean_jobs_cleans_text_and_keeps_metadata_and_source_unchanged() -> Non
 
 
 def test_relative_posted_text_becomes_estimated_datetime() -> None:
-    settings = load_settings()
+    settings = _settings_without_recent_search_filter()
     settings = replace(
         settings,
         validation=replace(settings.validation, minimum_description_length=20),
@@ -138,7 +146,7 @@ def test_clean_jobs_rejects_description_that_is_too_short_after_html_removal() -
 
 
 def test_relative_posting_older_than_configured_window_fails_validation() -> None:
-    settings = load_settings()
+    settings = _settings_without_recent_search_filter()
     raw_results = [
         {
             "collected_at": "2026-10-03T12:00:00+00:00",
@@ -162,7 +170,7 @@ def test_relative_posting_older_than_configured_window_fails_validation() -> Non
 
 
 def test_job_without_posted_date_is_retained_and_marked_unknown() -> None:
-    settings = load_settings()
+    settings = _settings_without_recent_search_filter()
     raw_results = [
         {
             "collected_at": "2026-10-03T12:00:00+00:00",

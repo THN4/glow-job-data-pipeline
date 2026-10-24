@@ -57,7 +57,9 @@ Table knowledge.knowledge_chunks {
   content text [not null]
   metadata jsonb
   embedding_model text
-  embedding vector(768) [note: 'Gemini Embedding 2, output_dimensionality=768; requires pgvector']
+  embedding vector(768) [note: 'Legacy Gemini Embedding 2 vectors; requires pgvector']
+  embedding_nova_model text
+  embedding_nova vector(1024) [note: 'Amazon Nova Multimodal Embeddings; requires pgvector']
   created_at timestamptz [not null, default: `now()`]
 
   indexes {

@@ -15,6 +15,7 @@ class SearchSettings:
     country: str
     max_pages: int
     date_posted: str
+    posted_within_days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,12 @@ def load_settings(config_dir: Path | None = None) -> Settings:
             "Search date_posted must be one of: "
             + ", ".join(sorted(SUPPORTED_DATE_POSTED))
         )
+    if search.posted_within_days is not None and (
+        not isinstance(search.posted_within_days, int)
+        or isinstance(search.posted_within_days, bool)
+        or search.posted_within_days <= 0
+    ):
+        raise ValueError("Search posted_within_days must be a positive integer")
     if any(
         not isinstance(value, str) or not value.strip()
         for value in (

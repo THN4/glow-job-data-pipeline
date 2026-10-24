@@ -35,6 +35,7 @@ def _job_errors(
     expected_country: str,
     minimum_description_length: int,
     time_window_days: int,
+    posted_within_days: int | None,
     now: datetime,
     collected_at: object,
 ) -> list[str]:
@@ -98,9 +99,11 @@ def _job_errors(
                 "job_posted_at",
             )
         )
-        # No date is a known data gap, not a reason to discard the posting.
+        # A strict recent-only run cannot prove that an undated job is recent.
         if has_date_value:
             errors.append("invalid posted date")
+        elif posted_within_days is not None:
+            errors.append("missing posted date for recent-only search")
     else:
         try:
             reference_time = datetime.fromisoformat(
@@ -111,7 +114,9 @@ def _job_errors(
             reference_time = reference_time.astimezone(timezone.utc)
         except ValueError:
             reference_time = now
-        if posted_at < reference_time - timedelta(days=time_window_days):
+        if posted_within_days is not None and posted_at < reference_time - timedelta(days=posted_within_days):
+            errors.append(f"posted date is older than {posted_within_days} days")
+        elif posted_at < reference_time - timedelta(days=time_window_days):
             errors.append(f"posted date is older than {time_window_days} days")
 
     return errors
@@ -168,6 +173,7 @@ def validate_jobs(
                 expected_country=expected_country,
                 minimum_description_length=settings.validation.minimum_description_length,
                 time_window_days=settings.validation.time_window_days,
+                posted_within_days=settings.search.posted_within_days,
                 now=now,
                 collected_at=metadata.get("collected_at"),
             )

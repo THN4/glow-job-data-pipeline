@@ -1,8 +1,40 @@
 import os
+from functools import lru_cache
 
 import requests
 
 from src.market.config.settings import JSearchSettings, SearchSettings
+
+
+@lru_cache(maxsize=8)
+def _secret_string(secret_id: str) -> str:
+    """Load and cache a plaintext secret using the ambient AWS credentials."""
+    import boto3
+
+    response = boto3.client("secretsmanager").get_secret_value(SecretId=secret_id)
+    secret_value = response.get("SecretString")
+    if not isinstance(secret_value, str) or not secret_value.strip():
+        raise ValueError("JSearch secret must contain a non-empty SecretString")
+    return secret_value.strip()
+
+
+def _api_key(api_key_env: str) -> str:
+    api_key = os.getenv(api_key_env, "").strip()
+    if api_key:
+        return api_key
+
+    secret_id = os.getenv("JSEARCH_SECRET_ID", "").strip()
+    if secret_id:
+        try:
+            return _secret_string(secret_id)
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not load JSearch API key from Secrets Manager secret {secret_id!r}"
+            ) from error
+
+    raise ValueError(
+        f"Set {api_key_env} or configure JSEARCH_SECRET_ID for Secrets Manager"
+    )
 
 
 def extract_single_query(
@@ -10,9 +42,7 @@ def extract_single_query(
     search_settings: SearchSettings,
     jsearch_settings: JSearchSettings,
 ) -> dict:
-    api_key = os.getenv(jsearch_settings.api_key_env)
-    if not api_key:
-        raise ValueError(f"Missing API key: {jsearch_settings.api_key_env}")
+    api_key = _api_key(jsearch_settings.api_key_env)
 
     params = {
         "query": query,

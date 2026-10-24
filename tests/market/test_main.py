@@ -259,13 +259,17 @@ def test_main_deduplicates_across_queries_and_keeps_match_metadata(
 
 def test_main_uses_supplied_id_for_a_new_raw_run(monkeypatch, tmp_path):
     captured = {}
+    monkeypatch.setenv("RAW_S3_BUCKET", "")
 
     def fake_extract(_settings, *, output_dir, run_id):
         captured.update(output_dir=output_dir, run_id=run_id)
         return []
 
     monkeypatch.setattr("src.market.main.extract_jobs", fake_extract)
-    result = main(new_run_id="known-run", raw_output_dir=tmp_path)
+    result = main(
+        new_run_id="known-run", raw_output_dir=tmp_path,
+        company_review_output_dir=tmp_path / "reviews",
+    )
 
     assert result == []
     assert captured == {"output_dir": tmp_path, "run_id": "known-run"}
