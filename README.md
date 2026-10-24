@@ -1,242 +1,191 @@
-# Glow-Job Data Pipeline
+# Glow Job Data Pipeline
 
-This repository provides data-processing packages for Glow-Job. The market domain collects Thailand job postings and prepares structured job-market data. The resume domain contains reusable CV parsing, extraction providers, contracts, schemas, and post-processing used by the backend, plus a direct extraction CLI and an API-flow client. Learning-document ingestion is still scaffolded. The intended market flow is JSearch extraction, raw response storage, validation, cleaning, deduplication, normalization, skill extraction, PostgreSQL loading, and career-level aggregation. See [Repository architecture](docs/architecture/repository-architecture.md) for the domain boundaries and full data flow.
+Data processing components for Glow Job. This repository collects and analyzes job postings in Thailand, extracts structured information from CVs, and prepares reviewed learning content for search. It is designed as a data-pipeline sub-repository; application APIs, user workflows, and product persistence are owned by the host Glow Job backend.
 
-## How the Market and Resume pipelines work together
+## Project status
 
-The two pipelines share infrastructure and a skill vocabulary, but process
-different source data and have different owners for database writes.
+| Domain | Current capabilities | Boundary |
+|---|---|---|
+| Market | JSearch collection and replay, validation, cleaning, deduplication, company/career normalization, evidence-backed skill extraction, catalog matching, PostgreSQL loading, career skill-demand aggregation, and a resumable scheduled-runner entry point. | Live runs use JSearch and Amazon Bedrock Nova 2 Lite. New catalog entries require a separate review and apply workflow. |
+| Resume | PDF/image preprocessing, structured CV extraction through Gemini, Bedrock Converse, or a mock provider, schema validation, evidence and review metadata, and derived profile facts. | The host backend owns uploads, job status, catalog lookup, user confirmation, and saving confirmed profiles. |
+| Documents | Bounded HTML crawling, human review, approved-page parsing, heading-aware chunking, skill mapping, PostgreSQL/pgvector loading, Gemini/Nova embeddings, semantic search, and document-backed skill-dependency proposal/review/apply tools. | Search is a retrieval prototype. A user-facing RAG answer flow, personalized curriculum, and roadmap integration belong to later application work. |
+
+The Market and Resume domains can use the shared canonical skill catalog, but they process different data. Market writes postings and matched job skills to `market.*`; the reusable Resume package does not write profiles or add skills to the catalog. Document content and vectors are stored under `knowledge.*`.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Market[Market pipeline — data-pipeline]
-        J[JSearch job postings] --> M[Validate, clean, deduplicate, map careers]
-        M --> ME[Nova 2 Lite extracts skills from job descriptions]
-        ME --> MC[Checkpoint and deterministic catalog matching]
-        MC --> ML[Load job postings and matched skills]
-        ML --> MA[Aggregate market demand]
+    subgraph Market
+        J[JSearch or saved raw run] --> M[Validate, clean, deduplicate, map careers]
+        M --> X[Nova 2 Lite skill extraction]
+        X --> C[Checkpoint and match reviewed catalog]
+        C --> D[(PostgreSQL market schema)]
+        D --> A[Career skill-demand aggregates]
     end
 
-    subgraph Resume[Resume pipeline — shared extractor plus host Backend]
-        CV[User CV upload] --> RP[Backend upload/job orchestration]
-        RP --> PRE[Resume preprocessor in data-pipeline]
-        PRE --> RE[Nova 2 Lite extracts structured profile]
-        RE --> POST[Resume postprocess and evidence/review flags]
-        POST --> CAT[Backend matches technical skills/tools]
-        CAT --> UI[User reviews and confirms profile]
-        UI --> SAVE[Backend persists confirmed anonymous profile]
+    subgraph Resume
+        CV[CV file] --> P[Preprocess pages]
+        P --> R[Gemini / Bedrock / mock extraction]
+        R --> O[Validated profile with evidence and review flags]
+        O -.host backend handles review and persistence.-> APP[(Application profile)]
     end
 
-    subgraph Shared[Shared components]
-        GEM[Bedrock Nova 2 Lite text client]
-        NORM[Shared deterministic skill normalizer]
-        CORE[(PostgreSQL core.skills and core.skill_aliases)]
+    subgraph Documents
+        U[Configured learning sources] --> H[Crawl and review HTML]
+        H --> K[Parse and chunk approved pages]
+        K --> V[Load and embed chunks]
+        V --> S[Semantic search and dependency review]
     end
-    GEM -.used by.-> ME
-    GEM -.used by.-> RE
-    CORE --> MC
-    CORE --> CAT
-    NORM -.matching logic.-> MC
-    NORM -.matching logic.-> CAT
-    ML --> MARKETDB[(PostgreSQL market schema)]
-    SAVE --> APPDB[(PostgreSQL app schema when configured)]
+
+    CORE[(core.skills and core.skill_aliases)] --> C
+    CORE -.backend catalog lookup.-> APP
 ```
 
-**What intersects:** both paths use Nova 2 Lite for text generation and the same
-deterministic skill-name matching rules. Gemini Embedding 2 is used for vector retrieval. They can read the same
-`core.skills` / `core.skill_aliases` catalog, so a CV label and a job-posting
-label can resolve to the same canonical skill ID. Catalog matching does not
-create catalog entries from CVs.
+Shared code under `src/shared/` provides provider clients, database setup, utilities, and deterministic skill-name normalization. Domain prompts, schemas, and business rules stay in their owning packages.
 
-**What stays separate:** Market extracts employer requirements from JDs,
-upserts postings and matched posting-skill links into `market.*`, then
-aggregates demand. Resume extracts a person's profile from a CV. The reusable
-Resume package in `data-pipeline/src/resume` does not connect to PostgreSQL;
-the host Backend owns uploads, job status, catalog lookup, user confirmation,
-and profile persistence to `app.*` when database settings are configured. In
-local development without DB settings, the Backend can use its JSON profile
-repository. A CV does not add a skill to the shared catalog or to market
-statistics. See the detailed [Market flow](docs/market/market-pipeline-flow.md)
-and [Resume flow](docs/resume/resume-pipeline-flow.md).
+## Requirements and local setup
 
-| Shared area | Market pipeline | Resume pipeline |
-|---|---|---|
-| Nova 2 Lite | Extracts skills and evidence from job descriptions. | Extracts a structured candidate profile from CV pages. |
-| Extraction contract | Market-specific skill requirements and evidence. | Resume-specific education, experience, projects, skills, and other profile facts. |
-| Skill normalization | Matches extracted JD labels to canonical skills/aliases before loading. | Backend matches only technical skills and tools; preserves the CV label and flags unmatched values. |
-| Database catalog | Reads `core.skills` and `core.skill_aliases`; writes matched IDs into `market.job_skills`. | Reads the same catalog through the Backend adapter; does not create catalog entries. |
-| Final output | Job postings, job-skill links, and aggregated market demand. | User-reviewed profile; Backend saves the confirmed profile to `app.*` when DB is configured. |
+- Python 3.10 or newer
+- PostgreSQL 16 with the `pgvector` extension for database-backed Market and Documents workflows
+- Docker Compose is provided for a local PostgreSQL instance
+- API/AWS credentials are needed only for workflows that call the corresponding provider
 
-Postings with no usable publication date are retained when their other required fields are valid. They are stored with `posted_at = NULL` and `posted_at_status = 'unknown'`; relative dates that can be parsed are labeled `estimated`. Career statistics can use either `posted_at` (provider publication date) or `first_seen_at` (when our pipeline first collected the posting). The first-seen basis includes undated postings and describes when our pipeline discovered jobs; it cannot recreate market history from before collection began.
-
-The current pipeline can fetch JSearch results, preserve them as raw JSON under `data/raw/`, replay a complete saved run without calling the API, validate and clean job records, and deduplicate repeated postings while retaining query provenance and all distinct `apply_options` links. It normalizes company names using confirmed aliases and emits fuzzy candidates for review, then maps job titles to configured career categories while preserving the original title. Skill extraction with Nova 2 Lite keeps evidence-backed raw results in checkpoints. A clean catalog rebuild re-extracts skills from saved job descriptions, proposes canonical names for review, and only writes the catalog after review and explicit apply. Company candidates are written to a run-specific CSV under `data/processed/company_match_candidates/`; unconfirmed company matches are not merged automatically. Unmapped or ambiguous careers remain in the output with their status. Invalid records, cleaning rejections, and pipeline counts are reported in the logs; raw responses remain available for review. The full scope is in [market-pipeline-spec.md](docs/market/market-pipeline-spec.md), and branch conventions are in [git-workflow.md](docs/architecture/git-workflow.md).
-
-## Local setup
-
-Use Python 3.10 or newer.
-
-### PowerShell
+### Windows PowerShell
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-python -m scripts.market.main
-# Replay an existing run (replace the value with a run folder name under data/raw/)
-python -m scripts.market.main --replay-run-id 20260928T120000000000Z
-python -m pytest
 ```
 
-### Command Prompt (CMD)
+Edit `.env` for the integrations you plan to use. `.env` contains secrets and is excluded from Git. Configure career searches in `config/careers.yaml`, market search and validation settings in `config/pipeline.yaml`, confirmed employer aliases in `config/company_aliases.yaml`, and learning sources in `config/document_sources.yaml`.
 
-```cmd
-py -m venv .venv
-.venv\Scripts\activate
-python -m pip install -r requirements.txt
-copy .env.example .env
-python -m scripts.market.main
-rem Replay an existing run (replace the value with a run folder name under data/raw/)
-python -m scripts.market.main --replay-run-id 20260928T120000000000Z
-python -m pytest
-```
+### Environment variables
 
-Set credentials in `.env` as the corresponding integrations are added. Do not commit `.env`. Edit `config/pipeline.yaml` to configure `search` request parameters and `validation` thresholds; edit `config/careers.yaml` to add career search queries without changing Python code.
+| Variable | Used for |
+|---|---|
+| `JSEARCH_API_KEY` or `JSEARCH_SECRET_ID` | Live Market collection through JSearch. `JSEARCH_SECRET_ID` reads the key from AWS Secrets Manager. |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | PostgreSQL connection. Defaults in `.env.example` are set up for the documented development environment; adjust them when using local Compose or another database. |
+| `RAW_S3_BUCKET`, `RAW_S3_PREFIX`, `AWS_DEFAULT_REGION` | Optional S3 copies of Market raw responses and scheduled-run settings. The scheduled runner defaults to S3; pass `--raw-storage local` for local-only operation. S3 access uses the standard AWS credential chain. |
+| `AWS_BEARER_TOKEN_BEDROCK` or AWS credentials | Market skill extraction, Nova document embeddings, and optional Bedrock Resume extraction. |
+| `BEDROCK_EXTRACTION_MODEL` | Optional Bedrock model ID for Resume extraction; defaults to `us.amazon.nova-2-lite-v1:0`. |
+| `RESUME_EXTRACTOR` | Resume provider: `mock` (default), `gemini`, or `bedrock_converse`. |
+| `GEMINI_API_KEY` | Gemini Resume extraction and Gemini document embeddings. |
+| `LOG_LEVEL` | Market logging level. |
 
-To write each complete raw JSearch response to S3 instead of local disk, set
-`RAW_S3_BUCKET` to the destination bucket and optionally set `RAW_S3_PREFIX`
-(default: `raw/jsearch`). Objects use the key format
-`<prefix>/YYYY/MM/DD/<run_id>/<query_number>_<career_slug>.json`. The runtime
-must have AWS credentials through its normal AWS credential chain; on EC2, use
-an instance profile with `s3:PutObject` access scoped to this bucket/prefix.
-When `RAW_S3_BUCKET` is blank, local storage under `data/raw/` remains active.
+The exact optional Resume provider settings, page limits, and timeouts are defined in [`src/resume/config.py`](src/resume/config.py). Never commit credentials or real CV files.
 
-To extract skills from an existing raw run, set `AWS_BEARER_TOKEN_BEDROCK` (or AWS credentials) in `.env` and run:
+## Database
 
-```shell
-python -m scripts.market.main --replay-run-id 20260928T120000000000Z --extract-skills --skill-limit 2
-```
-
-Replace the example run ID with a saved run. Omit `--skill-limit 2` to process every unique job. Nova 2 Lite reads the cleaned JD and returns raw skill names with supporting evidence. During normal runtime, the pipeline matches exact canonical names and confirmed aliases from PostgreSQL; each result retains `skills` (raw), `normalized_skills` (matched), and `unmatched_skills` (review needed). For the clean catalog rebuild, use the dedicated prepare/review/apply flow below instead of seeding skill names from a YAML file. New Nova 2 Lite requests start at least 10 seconds apart by default; `--skill-request-interval 20` changes that spacing. Results are saved after each job in `data/processed/skill_extraction/<run_id>.json`; rerunning the same run skips completed jobs and retries failed ones. A Bedrock throttling error currently stops the run without an automatic retry; successful checkpoint entries remain, so you can resume later with the same run ID. Each new request uses API quota. Request spacing helps with per-minute limits but cannot fix a daily quota or a token limit reached by a single request; check the Bedrock model access and quota for your AWS account. These JSON files are local checkpoints for review, not database records.
-
-## Local PostgreSQL
-
-Docker Compose reads the `DB_*` settings from `.env` and keeps database files in a named Docker volume.
+Start the local PostgreSQL service (set `DB_PASSWORD` in `.env` first), then apply the ordered migrations:
 
 ```powershell
 docker compose up -d postgres
 python -m scripts.database.migrate
+```
+
+The database image includes pgvector. The migration runner applies this repository's `migrations/versions/` files in order and records successful migrations in `system.schema_migrations`. The host repository may provide additional migration files; see [`migrations/README.md`](migrations/README.md) and [database schema overview](docs/database/database-schema-overview.md) for migration history and schema ownership.
+
+Initialize Market career reference data before loading postings:
+
+```powershell
 python -m scripts.market.seed_reference_data
-docker compose exec postgres psql -U glowjob -d glowjob -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name IN ('app', 'core', 'market', 'system') ORDER BY schema_name;"
 ```
 
-The seed command upserts configured career names and creates one `general` profile for each career, so market postings have a reference profile to point to. The verification command uses the default local database name and user from `.env.example`; adjust them if you changed `DB_NAME` or `DB_USER`. The same commands work in PowerShell and CMD. Migrations are tracked in `system.schema_migrations` and can be safely re-run; already-applied files are skipped. The runner applies both the pipeline migration directory and the host repository's root migration directory. Migration `008` creates the app schema only when applied; see the [host migration guide](../migrations/README.md). Migration `006` belongs to the earlier database-backed candidate resolver; the current rebuild preview is offline and does not use its review queue. See [migrations/README.md](migrations/README.md) for the pipeline migration convention and [the pipeline DBML](docs/database/schemas/pipeline-schema.dbml) for the pipeline schema plan.
+## Common workflows
 
-## Clean skill-catalog rebuild
+Run commands from the repository root with `python -m`.
 
-The rebuild starts from the cleaned job-description checkpoints and an empty skill catalog. It does not import names from `config/skills.yaml` or the existing skill catalog. The command below calls Nova 2 Lite again for every saved posting, creates concise candidate groups, and asks Nova 2 Lite to propose canonical names. No database rows change during preparation or review. Without `--force-all-extraction`, completed checkpoints from the current prompt version are reused.
+### Market collection and replay
 
-1. Prepare fresh extraction and a new candidate preview (requires Bedrock access configured in `.env`):
+Run the full pipeline from a saved raw run:
 
-   ```shell
-   python -m scripts.market.rebuild_skill_catalog_from_checkpoints --prepare-only --reextract --force-all-extraction
-   ```
-
-2. Review uncertain candidates and inspect the proposed catalog names:
-
-   ```shell
-   python -m scripts.market.review_skill_catalog_preview --summary
-   python -m scripts.market.list_skill_catalog_rebuild_names
-   python -m scripts.market.review_skill_catalog_preview
-   ```
-
-   The reviewer saves decisions only in `data/processed/skill_candidates/catalog_rebuild_preview.csv`. `ready_for_approval` candidates already have a proposed canonical decision; resolve `manual_review` and `needs_llm_suggestion` rows, then use `--list-catalog` to inspect selected names. You can map a candidate to a proposed name, create a custom canonical name, ignore it, or split it into components. The reviewer does not write to PostgreSQL.
-
-   To correct a previous decision or merge duplicate proposals before apply, reopen candidates with:
-
-   ```shell
-   python -m scripts.market.review_skill_catalog_preview --include-reviewed --all-candidates
-   ```
-
-   Keep the preferred canonical proposal and map each duplicate candidate to it. This changes only the preview CSV; it does not re-extract jobs or update the database. If the catalog was already applied, edit the saved preview this way and run apply again to rebuild skill aliases and posting-skill links from the checkpoints.
-
-3. After reviewing all candidates, apply the rebuild:
-
-   ```shell
-   python -m scripts.market.rebuild_skill_catalog_from_checkpoints --apply
-   ```
-
-   Apply creates a timestamped backup, verifies checkpoint coverage for postings in the database, resets only `core.skills`, `core.skill_aliases`, `core.skill_candidate_reviews`, `market.job_skills`, and `market.career_skill_stats` with `RESTART IDENTITY`, then reloads the skill links and career aggregates. Skill IDs start from 1 again. Job postings, careers, companies, and raw job data are preserved. Apply is allowed when all required manual-review decisions are resolved; high-confidence `ready_for_approval` proposals do not need an extra manual decision. For split decisions, only transformed checkpoint copies used during apply contain the component names; the original extraction checkpoints stay unchanged.
-
-After the catalog is applied, use `python -m scripts.market.load_job_skills <run_id>` for future checkpoint loads.
-
-## Aggregate career skill demand
-
-After applying the database migrations, load the saved skill run again so previously loaded postings receive `skill_extraction_completed=true`. Then refresh a date window using the desired date basis:
-
-```shell
-python -m scripts.database.migrate
-python -m scripts.market.load_job_skills 20260927T172453146903Z
-python -m scripts.market.aggregate_career_skills 2026-09-01 2026-09-30 --date-basis first_seen_at
+```powershell
+python -m scripts.market.run_pipeline --replay-run-id <run-id> --start-date 2026-10-01 --end-date 2026-10-25 --date-basis first_seen_at
 ```
 
-The dates are inclusive UTC dates. By default, the command uses `posted_at`, so jobs without a known publication date are excluded from that date window. Pass `--date-basis first_seen_at` to group jobs by when this pipeline first collected them; this includes undated postings and keeps first-seen time fixed across later runs. The command replaces statistics for that window and basis, so rerunning it does not duplicate rows. It reports eligible postings, career profiles, and skill statistics. `importance_tier` stays `unknown` until a reviewed threshold is defined. A small sample produces uncertain percentages; first-seen trends become useful after repeated collections and cannot recreate historical observations that were never captured.
+Or start a live run (uses JSearch, Bedrock, and the configured database):
 
-## Run the local pipeline in one command
-
-After running migrations, seeding career reference data, and applying the reviewed skill catalog, replay a saved raw run, load its completed skills, and refresh one UTC posting-date window:
-
-```shell
-python -m scripts.market.run_pipeline --replay-run-id 20260927T172453146903Z --replay-query-count 6 --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at --skill-limit 2
+```powershell
+python -m scripts.market.run_pipeline --live --start-date 2026-10-01 --end-date 2026-10-25 --date-basis first_seen_at
 ```
 
-The example's first two jobs already have completed skill extraction results, so replay skips JSearch and does not repeat those extraction requests. Unknown skill names remain in the extraction checkpoint for the separate catalog preview and review flow. That older raw run contains six queries; `--replay-query-count 6` preserves its completeness check after new careers are added to the configuration. New runs use the current query count automatically. Replay may call Nova 2 Lite for jobs beyond the completed extraction checkpoint, but it does not resolve skill candidates or write new skills to PostgreSQL. Omit `--skill-limit` to process the full raw run; a limit selects the first N career-mapped jobs overall, not N jobs per career. A limit smaller than an existing checkpoint is rejected to protect saved progress.
+The full workflow extracts skills, saves resumable checkpoints under `data/processed/skill_extraction/`, loads matched postings and skills, then refreshes the selected aggregate window. For extraction/replay without database loading and aggregation, use `python -m scripts.market.main --help`. See the [Market pipeline flow](docs/market/market-pipeline-flow.md) for stages, date semantics, and recovery behavior.
 
-To start a new run with JSearch and Nova 2 Lite, use `--live` instead of `--replay-run-id`:
+The scheduled single-worker entry point supports an offline plan and resumable runs:
 
-```shell
-python -m scripts.market.run_pipeline --live --start-date 2026-09-01 --end-date 2026-09-30 --date-basis first_seen_at
-```
-
-The command prints the run ID and per-stage counts. If skill extraction is incomplete, it stops before loading and aggregation; successful jobs remain in the checkpoint so you can resume with `--replay-run-id <run_id>`. The aggregation window includes every eligible posting currently loaded in the database, including postings from earlier runs. Run `python -m scripts.market.seed_reference_data` after adding careers and before loading their postings. The current six-career configuration makes 14 JSearch search queries per live run, requesting up to two pages per query, followed by Nova 2 Lite requests for jobs that pass validation. Scheduling, cloud storage, and monitoring are separate later tasks.
-
-## Scheduled EC2 pipeline command
-
-The [scheduled Market pipeline guide](docs/market/scheduled-pipeline-guide.md)
-documents a complete single-worker entry point with an offline plan, S3 plus
-local raw copies, resumable ingestion/skill checkpoints, a worker lock and
-per-attempt logs/journals:
-
-```shell
+```powershell
 python -m scripts.market.run_scheduled_pipeline --live --dry-run
 python -m scripts.market.run_scheduled_pipeline --live
-python -m scripts.market.run_scheduled_pipeline --resume-run-id YOUR_RUN_ID
+python -m scripts.market.run_scheduled_pipeline --resume-run-id <run-id>
 ```
 
-Run from this repository with dependencies and `.env` configured. The live command
-defaults to S3 and requires `RAW_S3_BUCKET`; choose `--raw-storage local` explicitly
-for local-only storage. It uses an inclusive UTC statistics window ending today,
-defaulting to `validation.time_window_days`, and `first_seen_at` as the date basis.
-EC2/cron deployment and external alerting remain separate setup steps.
+See the [scheduled pipeline guide](docs/market/scheduled-pipeline-guide.md) before configuring an EC2 worker. The command does not install cron or deploy infrastructure.
 
-## Layout
+### Skill catalog review
 
-- `src/market/`: implemented job-market ingestion, cleaning, normalization, skill extraction, loading, and aggregation
-- `src/resume/`: reusable CV/resume parsing, extraction contracts, schemas, and normalization
-- `src/documents/`: scaffold for skill-learning document ingestion, parsing, chunking, extraction, and embeddings
-- `src/shared/`: reusable skill-name normalization, LLM and database adapters, utilities, and schemas
-- `config/`: editable career and pipeline settings
-- `data/raw/`, `data/processed/`: local data directories, excluded from Git
-- `migrations/`: database migrations
-- `scripts/market/`, `scripts/database/`: domain CLI tools
-- `tests/market/`, `tests/shared/`, `tests/resume/`: tests for implemented pipeline domains; `tests/documents/` is reserved for future behavior
-- `docs/`: documentation grouped by domain and cross-domain topic
+Normal ingestion matches extracted names to existing canonical skills and confirmed aliases; it does not silently add unknown names. Use the clean catalog rebuild workflow when intentionally reviewing and applying catalog changes:
 
-For the full, stage-by-stage process and each pipeline's completion boundary,
-see the [Market pipeline flow](docs/market/market-pipeline-flow.md),
-[Resume pipeline flow](docs/resume/resume-pipeline-flow.md), and the
-[documentation index](docs/README.md).
+```powershell
+python -m scripts.market.rebuild_skill_catalog_from_checkpoints --help
+python -m scripts.market.review_skill_catalog_preview --summary
+```
 
-Use `python -m scripts.market.main` for market extraction/replay and `python -m scripts.market.run_pipeline` for the full market workflow with loading and aggregation. Run `python -m scripts.resume.extract <cv-file>` from this repository root for direct CV extraction, or `python -m scripts.resume.try_api <cv-file>` to exercise a running backend API. Implementations remain under `src.market` and `src.resume`; document workflows will have their own namespaced entry points.
+The apply step changes catalog and derived skill tables, so follow the complete prepare, review, backup, and apply procedure in the [skill candidate review guide](docs/market/skill-candidate-review-guide.md).
 
-CLI implementations and tests are grouped by domain under `scripts/` and `tests/`. Run commands with their domain-qualified module paths, such as `python -m scripts.market.run_pipeline`. See [script guide](scripts/README.md) and [test guide](tests/README.md).
+### Resume extraction
+
+The CLI processes one CV without starting the backend API. With `RESUME_EXTRACTOR=mock`, it runs without an external model call; set `gemini` or `bedrock_converse` and configure credentials to use those providers.
+
+```powershell
+python -m scripts.resume.extract path\to\resume.pdf --summary
+```
+
+The extractor accepts PDF and supported image files. It returns a structured profile with provenance and review metadata; it does not save the profile. See [Resume pipeline flow](docs/resume/resume-pipeline-flow.md).
+
+### Learning documents and semantic search
+
+The document workflow is deliberately reviewable. Its main steps are crawl, approve URLs, parse approved HTML, chunk and inspect content, check skill labels, preview/load chunks, generate embeddings, and search. Start with the [document extraction flow](docs/documents/document-extraction-flow.md).
+
+```powershell
+python -m scripts.documents.crawl --source-id airflow-official-tutorials
+python -m scripts.documents.load_chunks
+python -m scripts.documents.embed_chunks
+python -m scripts.documents.search_chunks --query "How do Airflow tasks pass data?" --skill "Apache Airflow"
+```
+
+These commands have stage-specific inputs and review gates. `load_chunks` and `embed_chunks` preview by default; pass `--apply` only after reviewing the artifacts and database configuration. Embeddings default to Gemini; `--provider nova` selects Nova Multimodal Embeddings and its separate vector column. Dependency proposals have their own evidence review and explicit apply workflow; see [dependency review guide](docs/documents/skill-dependency-review-guide.md).
+
+## Tests
+
+Run the test suite with:
+
+```powershell
+python -m pytest
+```
+
+Tests are grouped under `tests/market/`, `tests/shared/`, and `tests/resume/`. The document package currently has no corresponding automated test suite. See [`tests/README.md`](tests/README.md).
+
+## Repository layout
+
+```text
+config/       Market and document-source YAML configuration
+data/         Local raw inputs and processed artifacts (not committed)
+docs/         Architecture, domain flows, specifications, and runbooks
+migrations/   Pipeline-owned PostgreSQL migrations
+scripts/      Namespaced Market, Resume, Documents, and database CLIs
+src/          Domain packages: market, resume, documents, and shared
+tests/        Market, Resume, and shared automated tests
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Repository architecture](docs/architecture/repository-architecture.md)
+- [Market pipeline and skill extraction](docs/market/README.md)
+- [Resume flow and backend boundary](docs/resume/resume-pipeline-flow.md)
+- [Learning document workflow](docs/documents/document-extraction-flow.md)
+- [Database schema overview](docs/database/database-schema-overview.md)
+- [CLI index](scripts/README.md)
