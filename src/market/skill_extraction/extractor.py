@@ -4,7 +4,7 @@ import json
 import logging
 import time
 
-from src.shared.llm.gemini_client import GeminiRateLimitError, gemini_generate
+from src.shared.llm.bedrock_client import BedrockRequestError, nova_generate
 
 _REQUIREMENT_TYPES = {"required", "preferred", "optional", "unknown"}
 _PROFICIENCY_LEVELS = {
@@ -144,14 +144,14 @@ def extract_job_skills(
     job_title: str,
     job_description: str,
 ) -> list[dict[str, str]]:
-    """Extract skills from one job using Gemini and verify their evidence."""
+    """Extract skills from one job using Nova and verify their evidence."""
     if not isinstance(job_title, str) or not job_title.strip():
         raise ValueError("job_title must be a non-empty string")
     if not isinstance(job_description, str) or not job_description.strip():
         raise ValueError("job_description must be a non-empty string")
     prompt = _build_prompt(job_title.strip(), job_description.strip())
     for attempt in range(EXTRACTION_FORMAT_MAX_ATTEMPTS):
-        response_text = gemini_generate(prompt)
+        response_text = nova_generate(prompt)
         try:
             return _parse_skill_response(
                 response_text,
@@ -161,7 +161,7 @@ def extract_job_skills(
             if attempt + 1 == EXTRACTION_FORMAT_MAX_ATTEMPTS:
                 raise
             logger.warning(
-                "Gemini extraction response failed validation; retrying once: %s",
+                "Nova 2 Lite extraction response failed validation; retrying once: %s",
                 error,
             )
             time.sleep(EXTRACTION_FORMAT_RETRY_INTERVAL_SECONDS)
@@ -210,8 +210,13 @@ def extract_skills_for_jobs(
                 job_title,  # type: ignore[arg-type]
                 job_description,  # type: ignore[arg-type]
             )
-        except GeminiRateLimitError:
-            raise
+        except BedrockRequestError as error:
+            if error.retryable:
+                raise
+            logger.warning("Nova skill extraction failed for job_ref=%s", job_ref)
+            output_entry["extraction_status"] = "failed"
+            output_entry["skills"] = []
+            output_entry["extraction_error"] = str(error)
         except Exception as error:
             logger.warning(
                 "Skill extraction failed for job_ref=%s error_type=%s",

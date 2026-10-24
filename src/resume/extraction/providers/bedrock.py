@@ -1,4 +1,4 @@
-"""Nova Pro adapter preserving the shared CV prompt, schema and repair flow."""
+"""Amazon Nova adapter preserving the shared CV prompt, schema and repair flow."""
 
 from __future__ import annotations
 
@@ -55,14 +55,9 @@ class BedrockExtractor:
 
     def _extract_with_client(self, client, prepared: PreparedCv) -> ExtractorOutput:
         usage = Usage()
-        # Nova uses a forced tool to carry structured JSON. Keep the complete
-        # original contract in the instruction and Pydantic as the authority.
-        system = SYSTEM_PROMPT + "\nReturn JSON only matching this schema:\n" + json.dumps(
-            CvExtraction.model_json_schema(by_alias=True), ensure_ascii=False,
-        ) + "\nReturn the JSON object as the input of the submit_cv tool. Do not emit markdown."
+        # Keep the original system prompt verbatim. Bedrock's tool schema is
+        # transport configuration; Pydantic still validates the output.
         schema = cv_extraction_json_schema()
-        # Nova supports only these three keys at the tool schema's top level.
-        # This affects the wire format, not the strict validation contract.
         tool_schema = {key: schema[key] for key in ("type", "properties", "required")}
         field_names = _schema_field_names(schema)
         for schema_attempt in range(2):
@@ -72,7 +67,7 @@ class BedrockExtractor:
                     {"text": "\n\nPrevious response:\n" + previous_response},
                     {"text": repair_instructions(validation_error)},
                 ])
-            response = converse_text(client, model_id=self.name, content=content, system=system,
+            response = converse_text(client, model_id=self.name, content=content, system=SYSTEM_PROMPT,
                                      output_schema=tool_schema)
             usage.input_tokens += response.input_tokens
             usage.output_tokens += response.output_tokens
@@ -88,7 +83,7 @@ class BedrockExtractor:
                 log.warning("cv.nova.schema_invalid %s", json.dumps({
                     "attempt": schema_attempt + 1, "errorCount": len(issues), "issues": safe_issues,
                 }))
-                validation_error = json.dumps(issues, ensure_ascii=False)[:2000]
+                validation_error = str(error)[:2000]
         raise ResumeProcessingError("EXTRACTION_FAILED", "Nova did not return the required CV schema.")
 
 

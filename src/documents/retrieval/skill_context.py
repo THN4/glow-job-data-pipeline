@@ -15,8 +15,14 @@ from src.documents.schemas.skill_context import (
 )
 from src.shared.skill_normalization.normalizer import skill_name_key
 
-EMBEDDING_MODEL = "gemini-embedding-2"
-EMBEDDING_DIMENSIONS = 768
+from src.shared.llm.gemini_embedding_client import (
+    DIMENSIONS as EMBEDDING_DIMENSIONS,
+    MODEL_ID as EMBEDDING_MODEL,
+    create_gemini_client,
+    embed_text,
+    vector_literal,
+)
+from src.shared.llm.bedrock_client import BedrockTextSettings, nova_generate
 
 
 def resolve_skills(connection, labels):
@@ -74,21 +80,9 @@ def build_query(name, request):
 
 
 def embed_query(query):
-    from google.genai import types
-    from src.shared.llm.gemini_client import create_gemini_client
-
-    with create_gemini_client(timeout_ms=60000) as client:
-        response = client.models.embed_content(
-            model=EMBEDDING_MODEL, contents=f"task: search result | query: {query.strip()}",
-            config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIMENSIONS),
-        )
-    embeddings = response.embeddings or []
-    if len(embeddings) != 1:
-        raise ValueError("Expected one query embedding")
-    values = list(embeddings[0].values or [])
-    if len(values) != EMBEDDING_DIMENSIONS or not all(math.isfinite(value) for value in values):
-        raise ValueError("Query embedding has an invalid dimension/value")
-    return "[" + ",".join(format(float(value), ".9g") for value in values) + "]"
+    with create_gemini_client() as client:
+        values = embed_text(client, query.strip(), task_type="RETRIEVAL_QUERY")
+    return vector_literal(values)
 
 
 def retrieve(connection, skill_id, vector, policy):
@@ -120,8 +114,6 @@ def retrieve(connection, skill_id, vector, policy):
 
 
 def review_content(skill, request, query, chunks, *, generate=None, save_raw=None):
-    from src.shared.llm.bedrock_client import bedrock_generate
-
     data = {"skill_id": skill["skill_id"], "skill_name": skill["skill_name"], "query": query,
             "intent": request.intent, "current_level": request.current_level,
             "target_level": request.target_level, "chunks": [chunk.model_dump() for chunk in chunks]}
@@ -157,7 +149,7 @@ and every citation must be selected. Do not generate a complete Roadmap or assig
 """ + f"Select at most {request.policy.selected_limit} chunks.\nDATA:\n" + json.dumps(data, ensure_ascii=False)
     correction = ""
     for attempt in range(2):
-        raw = (generate or bedrock_generate)(prompt + correction)
+        raw = (generate or nova_generate)(prompt + correction)
         if save_raw:
             save_raw(skill["skill_id"], attempt + 1, raw)
         try:
@@ -277,10 +269,9 @@ def prepare_context(connection, request, *, text_review=False, generate=None, sa
         contexts.append(context)
         if on_skill:
             on_skill(context)
-    from src.shared.llm.bedrock_client import BedrockTextSettings
     return KnowledgeContextPreview(
         embedding_model=EMBEDDING_MODEL, embedding_dimensions=EMBEDDING_DIMENSIONS,
-        text_model=BedrockTextSettings().BEDROCK_RAG_MODEL if text_review else None, policy=request.policy,
+        text_model=BedrockTextSettings().model_id if text_review else None, policy=request.policy,
         content_chars_sent_for_review=sent_chars,
         selected_content_chars=sum(len(chunk.content) for context in contexts for chunk in context.retrieved_context),
         skills=contexts,

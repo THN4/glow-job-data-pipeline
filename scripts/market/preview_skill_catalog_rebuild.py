@@ -15,7 +15,7 @@ from src.market.skill_extraction.catalog_rebuild_preview import (
     scan_suggested_duplicates,
     save_catalog_rebuild_preview,
 )
-from src.shared.llm.gemini_client import gemini_generate
+from src.shared.llm.bedrock_client import nova_generate
 from src.shared.skill_normalization.normalizer import skill_name_key, split_composite_skill_name
 
 
@@ -158,14 +158,14 @@ def main() -> None:
     parser.add_argument(
         "--skip-duplicate-scan",
         action="store_true",
-        help="Skip the additional Gemini pass that flags possible duplicate proposals",
+        help="Skip the additional Nova 2 Lite pass that flags possible duplicate proposals",
     )
     parser.add_argument(
         "--suggest-limit",
         type=int,
         default=0,
         metavar="N",
-        help="Ask Gemini to suggest outcomes for the top N candidate groups (default: 0)",
+        help="Ask Nova 2 Lite to suggest outcomes for the top N candidate groups (default: 0)",
     )
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--request-interval", type=float, default=10.0)
@@ -203,7 +203,7 @@ def main() -> None:
                     suggestions = suggest_skill_candidates(
                         batch,
                         catalog,
-                        generate=gemini_generate,
+                        generate=nova_generate,
                         include_candidate_ids=False,
                         candidate_pool=candidate_pool,
                     )
@@ -211,7 +211,7 @@ def main() -> None:
                 except ValueError as error:
                     if attempt == SUGGESTION_FORMAT_MAX_ATTEMPTS:
                         raise RuntimeError(
-                            "Gemini returned an invalid candidate response after "
+                            "Nova 2 Lite returned an invalid candidate response after "
                             f"{SUGGESTION_FORMAT_MAX_ATTEMPTS} attempts; no database "
                             f"or checkpoint data was changed: {error}"
                         ) from error
@@ -227,13 +227,13 @@ def main() -> None:
             for attempt in range(1, SUGGESTION_FORMAT_MAX_ATTEMPTS + 1):
                 try:
                     duplicate_scan_count = scan_suggested_duplicates(
-                        rows[:suggestion_limit], generate=gemini_generate
+                        rows[:suggestion_limit], generate=nova_generate
                     )
                     break
                 except ValueError as error:
                     if attempt == SUGGESTION_FORMAT_MAX_ATTEMPTS:
                         raise RuntimeError(
-                            "Gemini duplicate scan returned an invalid response after "
+                            "Nova 2 Lite duplicate scan returned an invalid response after "
                             f"{SUGGESTION_FORMAT_MAX_ATTEMPTS} attempts: {error}"
                         ) from error
                     if arguments.request_interval:

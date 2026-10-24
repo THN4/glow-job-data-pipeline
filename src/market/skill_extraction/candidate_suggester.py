@@ -127,10 +127,10 @@ def _parse_suggestions(
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError as error:
-        raise ValueError("Gemini candidate suggestions must be valid JSON") from error
+        raise ValueError("Nova 2 Lite candidate suggestions must be valid JSON") from error
 
     if not isinstance(payload, dict) or not isinstance(payload.get("suggestions"), list):
-        raise ValueError("Gemini candidate response must contain a suggestions list")
+        raise ValueError("Nova 2 Lite candidate response must contain a suggestions list")
 
     canonical_names = {
         " ".join(str(item["skill_name"]).casefold().split()): str(item["skill_name"])
@@ -138,11 +138,11 @@ def _parse_suggestions(
         if item["match_method"] == "exact_canonical"
     }
     if len(payload["suggestions"]) != len(rows):
-        raise ValueError("Gemini did not return exactly one suggestion per candidate")
+        raise ValueError("Nova 2 Lite did not return exactly one suggestion per candidate")
     by_id: dict[int, SkillSuggestion] = {}
     for index, suggestion in enumerate(payload["suggestions"]):
         if not isinstance(suggestion, dict):
-            raise ValueError("Each Gemini suggestion must be an object")
+            raise ValueError("Each Nova 2 Lite suggestion must be an object")
         candidate_id = suggestion.get("candidate_id", index)
         decision = suggestion.get("decision")
         canonical_name = suggestion.get("canonical_skill_name")
@@ -157,13 +157,13 @@ def _parse_suggestions(
             or candidate_id in by_id
             or (not include_candidate_ids and candidate_id != index)
         ):
-            raise ValueError("Gemini returned an invalid or duplicate candidate_id")
+            raise ValueError("Nova 2 Lite returned an invalid or duplicate candidate_id")
         if not isinstance(decision, str) or decision not in _DECISIONS:
-            raise ValueError(f"Gemini returned an invalid decision for candidate {candidate_id}")
+            raise ValueError(f"Nova 2 Lite returned an invalid decision for candidate {candidate_id}")
         if not isinstance(confidence, str) or confidence not in _CONFIDENCE_LEVELS:
-            raise ValueError(f"Gemini returned an invalid confidence for candidate {candidate_id}")
+            raise ValueError(f"Nova 2 Lite returned an invalid confidence for candidate {candidate_id}")
         if not isinstance(reason, str) or not reason.strip():
-            raise ValueError(f"Gemini returned no reason for candidate {candidate_id}")
+            raise ValueError(f"Nova 2 Lite returned no reason for candidate {candidate_id}")
         if decision == "existing_skill":
             normalized_name = (
                 " ".join(canonical_name.casefold().split())
@@ -197,14 +197,14 @@ def _parse_suggestions(
                 or category not in allowed_categories
             ):
                 raise ValueError(
-                    f"Gemini returned an invalid new skill for candidate {candidate_id}"
+                    f"Nova 2 Lite returned an invalid new skill for candidate {candidate_id}"
                 )
             suggested_name = canonical_name.strip()
             suggested_category = category
         else:
             if canonical_name is not None or category is not None:
                 raise ValueError(
-                    f"Gemini must not assign a skill for candidate {candidate_id}"
+                    f"Nova 2 Lite must not assign a skill for candidate {candidate_id}"
                 )
             suggested_name = ""
             suggested_category = ""
@@ -217,7 +217,7 @@ def _parse_suggestions(
         }
 
     if set(by_id) != set(range(len(rows))):
-        raise ValueError("Gemini did not return exactly one suggestion per candidate")
+        raise ValueError("Nova 2 Lite did not return exactly one suggestion per candidate")
     return [by_id[index] for index in range(len(rows))]
 
 

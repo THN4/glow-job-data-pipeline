@@ -3,8 +3,8 @@
 `src.documents` contains the document ingestion, preparation, storage,
 embedding, and retrieval workflow for skill-learning documents. For the
 current reviewed demo corpus, bounded HTML discovery, candidate review,
-approved-page parsing, heading-aware chunking, database loading, Gemini
-Embedding 2 vectors in PostgreSQL/pgvector, embedding checks, and a semantic
+approved-page parsing, heading-aware chunking, database loading, Nova
+Multimodal Embeddings vectors in PostgreSQL/pgvector, embedding checks, and a semantic
 search prototype are implemented. The user-facing RAG answer flow is not yet
 implemented.
 
@@ -27,7 +27,7 @@ the broader learning graph design.
 | `parsing` | Implemented for approved HTML pages, extracting heading-path sections and removing common boilerplate. Other input formats remain future work. |
 | `chunking` | Implemented as heading-aware chunks with provenance and topic metadata. Review generated chunk artifacts before loading them. |
 | `extraction` | Bounded document-backed dependency proposals, local human review, cycle checks and verified lookup are implemented. Structured learning-topic extraction remains future work. |
-| `embeddings` | Implemented for the demo with Gemini Embedding 2 and PostgreSQL/pgvector. |
+| `embeddings` | Implemented for the demo with Amazon Nova Multimodal Embeddings and PostgreSQL/pgvector. |
 | `schemas` | Source, candidate-page, chunk and dependency proposal/review contracts. |
 | Retrieval | A command-line semantic-search prototype is implemented with optional canonical-skill filtering and a configurable result limit. Retrieval evaluation and the application RAG flow remain future work. |
 
@@ -43,13 +43,13 @@ evidence text with extracted knowledge. Prerequisite claims should be treated
 as reviewable evidence, not inferred only from co-occurrence in job postings.
 Reuse the canonical skill vocabulary and provider adapters from `src.shared`.
 
-The demo uses Gemini Embedding 2 with 768 output dimensions and the existing PostgreSQL + pgvector database; it does not require a separate vector database. Migrations `010`–`013` enable pgvector, create the source/chunk tables, and map chunks to multiple skills.
+The embedding CLI defaults to Gemini Embedding 2 with 768 dimensions and updates the existing `embedding` column used by retrieval. Pass `--provider nova` to use the optional Amazon Nova Multimodal Embeddings path (1,024 dimensions) in the separate `embedding_nova` column.
 
 Migrations `014`/`015` add reviewed dependencies with scope/conditions, exact
 chunk provenance and reviewer metadata. Verified general ordering edges are
 separate from document-specific/conditional Context; verification does not
 establish that a condition applies to a particular learner.
 
-For a new or updated corpus, preview the reviewed combined chunk file with `python -m scripts.documents.load_chunks`. Apply it only after the preview has no unmatched skill labels and the database migrations are complete. Loading stores source/chunk text and metadata; embeddings are generated separately. Preview pending vectors with `python -m scripts.documents.embed_chunks`. For a first run, generate and inspect a small sample before embedding the remaining chunks. Embeddings are saved in committed batches so a later run can resume. The command estimates request token volume and paces batches to its configured tokens-per-minute target; keep this below the active Gemini project quota. Run `python -m scripts.documents.check_embeddings` for a read-only check of completion, model name, and vector dimensions.
+For a new or updated corpus, preview the reviewed combined chunk file with `python -m scripts.documents.load_chunks`. Apply it only after the preview has no unmatched skill labels and the database migrations are complete. Loading stores source/chunk text and metadata; embeddings are generated separately. Preview pending vectors with `python -m scripts.documents.embed_chunks` (Gemini default). Add `--apply` to generate Gemini vectors in committed batches so a later run can resume. Pass `--provider nova` to use Bedrock and store vectors in the separate Nova column. Run `python -m scripts.documents.check_embeddings` for a read-only check of both vector sets.
 
 Try semantic retrieval with `python -m scripts.documents.search_chunks --query "..."`; add `--skill "..."` to filter by a canonical skill or alias, and `--limit` to change the number of returned chunks (default 5, maximum 50). The current search command returns ranked excerpts; it does not apply a relevance threshold, assemble a context window, or call a language model to generate a cited answer. Dependency proposals and human review use the separate workflow above. Remaining work includes representative-query evaluation, retrieval/context selection policy, source refresh and deduplication policy, dependency expansion/level policies, and the application RAG endpoint.

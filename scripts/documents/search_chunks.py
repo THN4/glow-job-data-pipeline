@@ -1,4 +1,4 @@
-"""Run a small semantic search over embedded knowledge chunks."""
+"""Search Gemini vectors by default, or the separate Nova vectors."""
 
 import argparse
 import os
@@ -6,33 +6,26 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
 from src.shared.db.database import get_database_connection
+from src.shared.llm.gemini_embedding_client import (
+    MODEL_ID as GEMINI_MODEL_ID,
+    create_gemini_client,
+    embed_text as embed_gemini_text,
+    vector_literal as gemini_vector_literal,
+)
+from src.shared.llm.nova_embedding_client import (
+    MODEL_ID as NOVA_MODEL_ID,
+    create_nova_embedding_client,
+    embed_text as embed_nova_text,
+    vector_literal as nova_vector_literal,
+)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL = "gemini-embedding-2"
-DIMENSIONS = 768
-
-
-def _vector_literal(values: list[float]) -> str:
-    if len(values) != DIMENSIONS:
-        raise ValueError(f"Expected {DIMENSIONS} query dimensions, received {len(values)}")
-    return "[" + ",".join(format(float(value), ".9g") for value in values) + "]"
-
-
-def _embed_query(client: Any, query: str) -> str:
-    formatted_query = f"task: search result | query: {query.strip()}"
-    response = client.models.embed_content(
-        model=MODEL,
-        contents=formatted_query,
-        config=types.EmbedContentConfig(output_dimensionality=DIMENSIONS),
-    )
-    embeddings = response.embeddings or []
-    if len(embeddings) != 1:
-        raise ValueError(f"Expected one query embedding, received {len(embeddings)}")
-    return _vector_literal(list(embeddings[0].values or []))
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+def _embed_query(client: Any, query: str, provider: str = "gemini") -> str:
+    if provider == "nova":
+        return nova_vector_literal(embed_nova_text(client, query.strip(), purpose="TEXT_RETRIEVAL"))
+    return gemini_vector_literal(embed_gemini_text(client, query.strip(), task_type="RETRIEVAL_QUERY"))
 
 
 def _resolve_skill(connection: Any, skill_name: str) -> tuple[int, str]:
@@ -69,9 +62,13 @@ def _search(
     vector: str,
     limit: int,
     skill_id: int | None,
+    provider: str = "gemini",
 ) -> list[tuple[Any, ...]]:
     skill_filter = ""
-    parameters: list[Any] = [vector, MODEL]
+    model = NOVA_MODEL_ID if provider == "nova" else GEMINI_MODEL_ID
+    embedding_column = "embedding_nova" if provider == "nova" else "embedding"
+    model_column = "embedding_nova_model" if provider == "nova" else "embedding_model"
+    parameters: list[Any] = [vector, model]
     if skill_id is not None:
         skill_filter = """
             AND EXISTS (
@@ -89,17 +86,17 @@ def _search(
                c.topic,
                s.source_url,
                string_agg(DISTINCT skill.skill_name, ', ' ORDER BY skill.skill_name) AS skills,
-               round((1 - (c.embedding <=> %s::vector))::numeric, 4) AS similarity,
+               round((1 - (c.{embedding_column} <=> %s::vector))::numeric, 4) AS similarity,
                left(c.content, 700) AS excerpt
         FROM knowledge.knowledge_chunks AS c
         JOIN knowledge.knowledge_sources AS s ON s.source_id = c.source_id
         LEFT JOIN knowledge.knowledge_chunk_skills AS chunk_map ON chunk_map.chunk_id = c.chunk_id
         LEFT JOIN core.skills AS skill ON skill.skill_id = chunk_map.skill_id
-        WHERE c.embedding IS NOT NULL
-          AND c.embedding_model = %s
+        WHERE c.{embedding_column} IS NOT NULL
+          AND c.{model_column} = %s
           {skill_filter}
         GROUP BY c.chunk_id, s.source_id
-        ORDER BY c.embedding <=> %s::vector
+        ORDER BY c.{embedding_column} <=> %s::vector
         LIMIT %s
     """
     with connection.cursor() as cursor:
@@ -126,6 +123,8 @@ def main() -> None:
     parser.add_argument("--query", required=True, help="Natural-language search question")
     parser.add_argument("--skill", help="Optional canonical skill name or alias to filter results")
     parser.add_argument("--limit", type=int, default=5, help="Maximum number of chunks to show (default: 5)")
+    parser.add_argument("--provider", choices=("gemini", "nova"), default="gemini",
+                        help="Embedding provider to search (default: gemini)")
     args = parser.parse_args()
     if not args.query.strip():
         parser.error("--query cannot be empty")
@@ -133,19 +132,19 @@ def main() -> None:
         parser.error("--limit must be between 1 and 50")
 
     try:
-        load_dotenv(PROJECT_ROOT / ".env")
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set in the data-pipeline .env")
-
-        with genai.Client(api_key=api_key) as client:
-            query_vector = _embed_query(client, args.query)
+        load_dotenv(REPOSITORY_ROOT / ".env")
+        region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+        client = create_nova_embedding_client(region) if args.provider == "nova" else create_gemini_client()
+        try:
+            query_vector = _embed_query(client, args.query, args.provider)
+        finally:
+            client.close()
         with get_database_connection() as connection:
             skill_id = None
             canonical_skill = None
             if args.skill:
                 skill_id, canonical_skill = _resolve_skill(connection, args.skill)
-            results = _search(connection, query_vector, args.limit, skill_id)
+            results = _search(connection, query_vector, args.limit, skill_id, args.provider)
         _print_results(results, canonical_skill)
     except (OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))

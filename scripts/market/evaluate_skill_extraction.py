@@ -1,4 +1,4 @@
-"""Run a small, opt-in quality check against the configured Gemini model."""
+"""Run a small, opt-in quality check against the configured Nova 2 Lite model."""
 
 import argparse
 import json

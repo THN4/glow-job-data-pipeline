@@ -22,7 +22,7 @@ from src.market.skill_extraction.catalog_rebuild_preview import (
 )
 from src.market.skill_extraction.extractor import EXTRACTION_PROMPT_VERSION, extract_skills_for_jobs
 from src.market.skill_extraction.candidate_suggester import suggest_skill_candidates
-from src.shared.llm.gemini_client import gemini_generate
+from src.shared.llm.bedrock_client import nova_generate
 from src.shared.skill_normalization.normalizer import (
     skill_identity_key,
     skill_name_key,
@@ -197,7 +197,7 @@ def _suggest_candidates(
                 suggestions = suggest_skill_candidates(
                     batch,
                     catalog,
-                    generate=gemini_generate,
+                    generate=nova_generate,
                     include_candidate_ids=False,
                     candidate_pool=candidate_pool,
                 )
@@ -917,12 +917,12 @@ def main() -> None:
     parser.add_argument(
         "--reextract",
         action="store_true",
-        help="Run Gemini again for checkpoints not already extracted with the current prompt",
+        help="Run Nova 2 Lite again for checkpoints not already extracted with the current prompt",
     )
     parser.add_argument(
         "--force-all-extraction",
         action="store_true",
-        help="Call Gemini again for every posting, even if it has the current prompt version",
+        help="Call Nova 2 Lite again for every posting, even if it has the current prompt version",
     )
     parser.add_argument(
         "--prepare-only",
@@ -1030,7 +1030,7 @@ def main() -> None:
             )
         )
         print(
-            "Dry run uses saved checkpoints and performs no Gemini calls, "
+            "Dry run uses saved checkpoints and performs no Nova 2 Lite calls, "
             "file writes, or database writes. The clean rebuild starts with "
             "an empty catalog; review decisions determine the proposed names."
         )
@@ -1072,7 +1072,7 @@ def main() -> None:
         if suggestion_requests and len(rows) > 1:
             if arguments.request_interval:
                 time.sleep(arguments.request_interval)
-            scan_suggested_duplicates(rows, generate=gemini_generate)
+            scan_suggested_duplicates(rows, generate=nova_generate)
         finalize_preview_suggestions(rows)
         save_catalog_rebuild_preview(rows, PREVIEW_FILE)
         print(

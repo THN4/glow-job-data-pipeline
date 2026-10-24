@@ -6,14 +6,16 @@ import json
 from unittest.mock import Mock
 
 import pytest
+from botocore.exceptions import ClientError
 
 from src.resume.config import ResumeModelSettings
 from src.resume.errors import ResumeProcessingError
 from src.resume.extraction.contracts import PageImage, PreparedCv, PreparedPage
-from src.resume.extraction.prompt import SYSTEM_PROMPT, USER_INSTRUCTIONS
+from src.resume.extraction.prompt import SYSTEM_PROMPT, USER_INSTRUCTIONS, repair_instructions
 from src.resume.extraction.providers import create_extractor
 from src.resume.extraction.providers import bedrock
 from src.resume.extraction.providers.mock import mock_extraction
+from src.resume.schemas.cv_extraction import CvExtraction
 
 
 def response(text, stop="tool_use"):
@@ -35,12 +37,12 @@ def run(extractor=None, prepared=None):
         prepared or PreparedCv(kind="text", page_count=1, text="Synthetic CV")))
 
 
-def test_factory_uses_nova_without_gemini_key(monkeypatch):
+def test_factory_uses_bedrock_without_gemini_key(monkeypatch):
     cfg = ResumeModelSettings(_env_file=None, RESUME_EXTRACTOR="bedrock_converse",
-                              BEDROCK_EXTRACTION_MODEL="us.amazon.nova-pro-v1:0")
+                              BEDROCK_EXTRACTION_MODEL="us.amazon.nova-2-lite-v1:0")
     extractor = create_extractor(cfg)
     assert extractor.provider == "bedrock_converse"
-    assert extractor.name == "us.amazon.nova-pro-v1:0"
+    assert extractor.name == "us.amazon.nova-2-lite-v1:0"
     assert extractor.groundable
 
 
@@ -52,11 +54,11 @@ def test_text_contract_prompt_usage_and_cache(monkeypatch):
     assert result.extraction == expected
     assert (result.usage.input_tokens, result.usage.output_tokens) == (11, 7)
     request = client.converse.call_args.kwargs
-    assert request["modelId"] == "amazon.nova-pro-v1:0"
-    assert request["system"][0]["text"].startswith(SYSTEM_PROMPT)
-    assert json.dumps(expected.model_json_schema(by_alias=True)) in request["system"][0]["text"]
+    assert request["modelId"] == "us.amazon.nova-2-lite-v1:0"
+    assert request["system"][0]["text"] == SYSTEM_PROMPT
     assert request["messages"][0]["content"] == [{"text": f"<cv>\nSynthetic CV\n</cv>\n\n{USER_INSTRUCTIONS}"}]
     assert extractor.cache_identity["maxOutputTokens"] == request["inferenceConfig"]["maxTokens"]
+    assert request["inferenceConfig"] == {"maxTokens": 5000, "temperature": 0}
     assert extractor.cache_identity["responseFormat"] == "nova-tool-v1"
     assert request["toolConfig"]["toolChoice"] == {"tool": {"name": "submit_cv"}}
     schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
@@ -75,6 +77,9 @@ def test_schema_repair_preserves_input_and_accumulates_usage(monkeypatch):
     assert first["messages"][0]["content"][0] == second["messages"][0]["content"][0]
     assert "Previous response:\n{}" in second["messages"][0]["content"][1]["text"]
     assert len(second["messages"][0]["content"]) == 3
+    with pytest.raises(ValueError) as error:
+        CvExtraction.model_validate_json("{}")
+    assert second["messages"][0]["content"][2]["text"] == repair_instructions(str(error.value)[:2000])
 
 
 def test_repeated_schema_failure_is_not_accepted(monkeypatch):
@@ -120,6 +125,17 @@ def test_timeout_uses_existing_domain_error(monkeypatch):
         run()
     assert error.value.code == "EXTRACTION_TIMEOUT"
     assert "private input" not in str(error.value)
+
+
+def test_bedrock_client_error_exposes_safe_aws_error_code(monkeypatch):
+    failure = ClientError({"Error": {"Code": "ValidationException", "Message": "PRIVATE request details"},
+                           "ResponseMetadata": {"HTTPStatusCode": 400}}, "Converse")
+    setup_client(monkeypatch, failure)
+    with pytest.raises(ResumeProcessingError) as error:
+        run()
+    assert error.value.code == "MODEL_UNAVAILABLE"
+    assert "ValidationException" in str(error.value)
+    assert "PRIVATE" not in str(error.value)
 
 
 def test_invalid_fields_repaired_without_logging_cv_values(monkeypatch, caplog):

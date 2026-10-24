@@ -20,7 +20,7 @@ class ResumeModelSettings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     RESUME_GEMINI_TIMEOUT_MS: int = 180_000
     RESUME_BEDROCK_TIMEOUT_MS: int = Field(default=180_000, gt=0)
-    BEDROCK_EXTRACTION_MODEL: str = Field(default="amazon.nova-pro-v1:0", min_length=1)
+    BEDROCK_EXTRACTION_MODEL: str = Field(default="us.amazon.nova-2-lite-v1:0", min_length=1)
     AWS_DEFAULT_REGION: str = "us-east-1"
     AWS_REGION: str | None = None
     MAX_PDF_PAGES: int = Field(default=10, ge=1)

@@ -485,7 +485,7 @@ def audit_skill_catalog_names(
 def scan_suggested_duplicates(
     rows: list[dict[str, object]], *, generate: Callable[[str], str]
 ) -> int:
-    """Ask Gemini to flag semantic duplicates for human review, never auto-merge."""
+    """Ask Nova 2 Lite to flag semantic duplicates for human review, never auto-merge."""
     suggested_rows = [
         row for row in rows if row.get("suggestion_decision") in {"existing_skill", "new_skill"}
     ]
@@ -515,10 +515,10 @@ def scan_suggested_duplicates(
     try:
         payload = json.loads(generate(prompt))
     except json.JSONDecodeError as error:
-        raise ValueError("Gemini duplicate scan must return valid JSON") from error
+        raise ValueError("Nova 2 Lite duplicate scan must return valid JSON") from error
     groups = payload.get("possible_duplicate_groups") if isinstance(payload, dict) else None
     if not isinstance(groups, list):
-        raise ValueError("Gemini duplicate scan must contain possible_duplicate_groups")
+        raise ValueError("Nova 2 Lite duplicate scan must contain possible_duplicate_groups")
     additions: dict[str, set[str]] = defaultdict(set)
     for group in groups:
         if (
@@ -527,7 +527,7 @@ def scan_suggested_duplicates(
             or any(not isinstance(name, str) or name not in known_names for name in group)
             or len(set(group)) != len(group)
         ):
-            raise ValueError("Gemini duplicate scan returned an invalid candidate group")
+            raise ValueError("Nova 2 Lite duplicate scan returned an invalid candidate group")
         for name in group:
             additions[name].update(other for other in group if other != name)
     for row in suggested_rows:

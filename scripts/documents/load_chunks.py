@@ -210,7 +210,13 @@ def _persist_chunks(
                             THEN NULL ELSE knowledge.knowledge_chunks.embedding_model END,
                         embedding = CASE
                             WHEN knowledge.knowledge_chunks.content IS DISTINCT FROM EXCLUDED.content
-                            THEN NULL ELSE knowledge.knowledge_chunks.embedding END
+                            THEN NULL ELSE knowledge.knowledge_chunks.embedding END,
+                        embedding_nova_model = CASE
+                            WHEN knowledge.knowledge_chunks.content IS DISTINCT FROM EXCLUDED.content
+                            THEN NULL ELSE knowledge.knowledge_chunks.embedding_nova_model END,
+                        embedding_nova = CASE
+                            WHEN knowledge.knowledge_chunks.content IS DISTINCT FROM EXCLUDED.content
+                            THEN NULL ELSE knowledge.knowledge_chunks.embedding_nova END
                     RETURNING chunk_id
                     """,
                     (

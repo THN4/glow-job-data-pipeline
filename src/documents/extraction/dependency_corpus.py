@@ -71,7 +71,7 @@ def validate_response(pack, raw):
 
 
 def generate_corpus(connection, output, *, batch_size=24, max_chars=40000, checkpoint=None):
-    from src.shared.llm.gemini_client import GEMINI_MODEL, gemini_generate
+    from src.shared.llm.bedrock_client import BedrockTextSettings, nova_generate
 
     output = Path(output)
     if output.suffix.lower() != ".json" or not 1 <= batch_size <= 40 or max_chars < 5000:
@@ -93,7 +93,7 @@ def generate_corpus(connection, output, *, batch_size=24, max_chars=40000, check
             evidence_path.write_text(json.dumps(pack, ensure_ascii=False, indent=2), encoding="utf-8")
         if not pack["chunks"]:
             raise ValueError("No prepared active document chunks with approved skill mappings")
-        manifest = ReviewManifest(model=GEMINI_MODEL, target_skills=pack["targets"],
+        manifest = ReviewManifest(model=BedrockTextSettings().model_id, target_skills=pack["targets"],
                                   inspected_chunk_count=0, omitted_chunk_count=len(pack["chunks"]),
                                   corpus_chunk_count=len(pack["chunks"]),
                                   source_count=len({chunk["source_id"] for chunk in pack["chunks"]}), items=[])
@@ -127,7 +127,7 @@ def generate_corpus(connection, output, *, batch_size=24, max_chars=40000, check
             def generate(prompt):
                 # Keep the provider JSON mode; validate the richer nested contract
                 # locally. The provider rejected this full proposal schema (400).
-                raw = gemini_generate(prompt + correction)
+                raw = nova_generate(prompt + correction)
                 raw_path = output.with_name(f"{output.stem}.chunks-{chunks[0]['chunk_id']}.{response_stamp}.attempt-{attempt + 1}.response.json")
                 raw_path.write_text(raw, encoding="utf-8")
                 return raw

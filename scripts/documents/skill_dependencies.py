@@ -183,7 +183,7 @@ def main():
     proposed.add_argument("--max-chars", type=int, default=60000)
     generation = proposed.add_mutually_exclusive_group()
     generation.add_argument("--generate", action="store_true")
-    generation.add_argument("--response-file", type=Path, help="Validate saved model/manual JSON instead of calling Gemini")
+    generation.add_argument("--response-file", type=Path, help="Validate saved model/manual JSON instead of calling Bedrock")
     review = commands.add_parser("review")
     review.add_argument("--manifest", type=Path, required=True)
     review.add_argument("--reviewer", required=True)
@@ -218,13 +218,13 @@ def main():
                               "target_evidence": pack["target_evidence"],
                               "omitted_chunks": pack["omitted_chunk_count"], "evidence_file": str(evidence_path)}, ensure_ascii=False))
             if not args.generate and not args.response_file:
-                print("Evidence preview only. Add --generate to call Gemini, or --response-file to validate a saved response.")
+                print("Evidence preview only. Add --generate to call Nova, or --response-file to validate a saved response.")
                 return
             def generate(prompt):
                 if args.response_file:
                     return args.response_file.read_text(encoding="utf-8")
-                from src.shared.llm.gemini_client import gemini_generate
-                response = gemini_generate(prompt)
+                from src.shared.llm.bedrock_client import nova_generate
+                response = nova_generate(prompt)
                 args.output.with_suffix(".response.json").write_text(response, encoding="utf-8")
                 return response
             manifest = propose(pack, generate=generate)

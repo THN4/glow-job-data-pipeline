@@ -3,7 +3,7 @@ import json
 import pytest
 
 from src.market.skill_extraction.extractor import extract_job_skills, extract_skills_for_jobs
-from src.shared.llm.gemini_client import GeminiRateLimitError
+from src.shared.llm.bedrock_client import BedrockRequestError
 
 
 def test_extract_job_skills_parses_response_and_builds_context_prompt(monkeypatch) -> None:
@@ -27,7 +27,7 @@ def test_extract_job_skills_parses_response_and_builds_context_prompt(monkeypatc
         prompts.append(prompt)
         return llm_response
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", fake_llm_generate)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", fake_llm_generate)
     skills = extract_job_skills(
         job_title,
         job_description,
@@ -49,7 +49,7 @@ def test_extract_job_skills_parses_response_and_builds_context_prompt(monkeypatc
 
 def test_extract_job_skills_accepts_no_skills_result(monkeypatch) -> None:
     monkeypatch.setattr(
-        "src.market.skill_extraction.extractor.gemini_generate",
+        "src.market.skill_extraction.extractor.nova_generate",
         lambda _prompt: '{"skills": []}',
     )
     skills = extract_job_skills(
@@ -64,7 +64,7 @@ def test_extract_job_skills_rejects_empty_job_title_before_calling_llm(monkeypat
     def unexpected_llm_call(_prompt: str) -> str:
         pytest.fail("LLM should not be called for invalid input")
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", unexpected_llm_call)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", unexpected_llm_call)
     with pytest.raises(ValueError, match="job_title must be a non-empty string"):
         extract_job_skills(
             "  ",
@@ -80,7 +80,7 @@ def test_extract_job_skills_rejects_invalid_description(
     def unexpected_llm_call(_prompt: str) -> str:
         pytest.fail("LLM should not be called for invalid input")
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", unexpected_llm_call)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", unexpected_llm_call)
     with pytest.raises(
         ValueError,
         match="job_description must be a non-empty string",
@@ -129,7 +129,7 @@ def test_extract_job_skills_rejects_invalid_llm_response(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        "src.market.skill_extraction.extractor.gemini_generate",
+        "src.market.skill_extraction.extractor.nova_generate",
         lambda _prompt: response_text,
     )
     with pytest.raises(ValueError, match=error_message):
@@ -177,7 +177,7 @@ def test_extract_skills_for_jobs_keeps_metadata_and_marks_success(monkeypatch) -
         calls.append(prompt)
         return response
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", fake_llm_generate)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", fake_llm_generate)
     results = extract_skills_for_jobs(entries)
 
     assert len(calls) == 2
@@ -216,7 +216,7 @@ def test_extract_skills_for_jobs_keeps_processing_after_one_failure(monkeypatch)
             raise RuntimeError("provider unavailable")
         return '{"skills": []}'
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", flaky_llm_generate)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", flaky_llm_generate)
     results = extract_skills_for_jobs(entries)
 
     assert results[0]["extraction_status"] == "failed"
@@ -230,7 +230,7 @@ def test_extract_skills_for_jobs_marks_invalid_entry_failed_without_llm_call(mon
     def unexpected_llm_call(_prompt: str) -> str:
         pytest.fail("LLM should not be called for an entry without a job")
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", unexpected_llm_call)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", unexpected_llm_call)
     results = extract_skills_for_jobs(
         [{"metadata": {"run_id": "run-1"}}],
     )
@@ -242,19 +242,19 @@ def test_extract_skills_for_jobs_marks_invalid_entry_failed_without_llm_call(mon
     )
 
 
-def test_extract_skills_for_jobs_stops_on_rate_limit(monkeypatch) -> None:
+def test_extract_skills_for_jobs_stops_on_retryable_bedrock_error(monkeypatch) -> None:
     calls = []
 
     def rate_limited(_prompt: str) -> str:
         calls.append(1)
-        raise GeminiRateLimitError("Gemini rate limit reached (HTTP 429)")
+        raise BedrockRequestError("Bedrock throttled", retryable=True)
 
-    monkeypatch.setattr("src.market.skill_extraction.extractor.gemini_generate", rate_limited)
+    monkeypatch.setattr("src.market.skill_extraction.extractor.nova_generate", rate_limited)
     jobs = [
         {"job": {"job_title": "Data Engineer", "job_description": "Python required."}}
     ] * 2
 
-    with pytest.raises(GeminiRateLimitError, match="HTTP 429"):
+    with pytest.raises(BedrockRequestError, match="throttled"):
         extract_skills_for_jobs(jobs)
 
     assert len(calls) == 1

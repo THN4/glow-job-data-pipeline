@@ -129,8 +129,8 @@ def prepare_evidence(connection, target_names, *, max_chunks=18, max_chars=60000
 
 
 def propose(pack, *, generate=None, allow_inference=False, max_proposals=12):
-    """One bounded Gemini text request. All returned items remain unreviewed."""
-    from src.shared.llm.gemini_client import GEMINI_MODEL, gemini_generate
+    """One bounded Nova text request. All returned items remain unreviewed."""
+    from src.shared.llm.bedrock_client import BedrockTextSettings, nova_generate
 
     target_evidence = [TargetEvidence.model_validate(item) for item in pack.get("target_evidence", [])]
     if not pack["chunks"]:
@@ -187,11 +187,11 @@ is not supported; do not ask the reviewer to invent a condition. Do not emit unk
 """
     prompt += f"\nReturn no more than {max_proposals} proposals; do not repeat a typed edge within the same scope/condition.\nDATA:\n"
     prompt += json.dumps(pack, ensure_ascii=False)
-    result = json.loads((generate or gemini_generate)(prompt))
+    result = json.loads((generate or nova_generate)(prompt))
     if not isinstance(result, dict) or set(result) != {"proposals"} or not isinstance(result["proposals"], list):
-        raise ValueError("Gemini must return an object containing only a proposals list")
+        raise ValueError("Nova must return an object containing only a proposals list")
     if len(result["proposals"]) > max_proposals:
-        raise ValueError("Gemini exceeded the proposal budget")
+        raise ValueError("Nova exceeded the proposal budget")
     chunks = {chunk["chunk_id"]: chunk for chunk in pack["chunks"]}
     catalog = {skill["skill_id"]: skill["skill_name"] for skill in pack["catalog"]}
     target_ids = {skill["skill_id"] for skill in pack["targets"]}
@@ -238,7 +238,7 @@ is not supported; do not ask the reviewer to invent a condition. Do not emit unk
             source_title=chunk["title"], source_url=chunk["source_url"], chunk_content_hash=digest(chunk["content"]),
             scope_flags=proposal_scope_flags(proposal, chunk["title"]),
         ))
-    return ReviewManifest(model=GEMINI_MODEL, target_skills=pack["targets"],
+    return ReviewManifest(model=BedrockTextSettings().model_id, target_skills=pack["targets"],
                          target_evidence=target_evidence,
                          inspected_chunk_count=len(pack["chunks"]), omitted_chunk_count=pack["omitted_chunk_count"],
                          duplicate_proposals=duplicate_count, items=items)

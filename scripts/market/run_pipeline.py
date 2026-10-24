@@ -21,7 +21,7 @@ def main() -> None:
         "--replay-run-id", help="Use saved JSearch responses for this run ID"
     )
     source.add_argument(
-        "--live", action="store_true", help="Start a new JSearch and Gemini run"
+        "--live", action="store_true", help="Start a new JSearch and Nova 2 Lite run"
     )
     parser.add_argument(
         "--replay-query-count",
