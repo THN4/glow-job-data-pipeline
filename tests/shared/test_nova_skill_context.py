@@ -144,6 +144,35 @@ def test_schema_failure_feedback_has_paths_and_previous_output_without_raw_error
     assert "PRIVATE_INVALID_VALUE" not in caplog.text
 
 
+@pytest.mark.parametrize("mutate, reason", [
+    (lambda data: data.update(selected_chunk_ids=[1, 1]), "Repeated selected chunk IDs"),
+    (lambda data: data.update(selected_chunk_ids=[]), "Selected chunks must be exactly the chunks supporting the claims"),
+    (lambda data: data.update(status="insufficient_evidence"), "Insufficient evidence must not generate learning claims"),
+    (lambda data: data.update(claims=[], selected_chunk_ids=[]), "Supported/partial context requires cited claims"),
+    (lambda data: data["claims"][0].update(support_kind="topic_outline"), "Topic outlines support only partial context, not ready teaching content"),
+])
+def test_cross_field_failure_gives_actionable_repair_feedback(mutate, reason, caplog):
+    invalid = json.loads(review())
+    mutate(invalid)
+    generate = Mock(side_effect=[json.dumps(invalid), review()])
+    result = context.review_content({"skill_id": 1, "skill_name": "Git"},
+        ContextRequest(skill_ids=[1]), "Git", [chunk()], generate=generate)
+    assert result.status == "supported"
+    assert reason in generate.call_args.args[0]
+    assert reason in caplog.text
+    assert generate.call_count == 2
+
+
+def test_unsupported_outline_remains_unavailable_as_instructional_content():
+    payload = json.loads(review())
+    payload["status"] = "partial"
+    payload["claims"][0]["support_kind"] = "topic_outline"
+    result = context.review_content({"skill_id": 1, "skill_name": "Git"},
+        ContextRequest(skill_ids=[1]), "Git", [chunk()], generate=Mock(return_value=json.dumps(payload)))
+    assert result.status == "partial"
+    assert all(claim.support_kind == "topic_outline" for claim in result.claims)
+
+
 def test_failed_review_records_safe_provider_code_and_keeps_content_unavailable(monkeypatch, caplog):
     monkeypatch.setattr(context, "lookup_verified", lambda conn: [])
     monkeypatch.setattr(context, "coverage", lambda conn, ids: {

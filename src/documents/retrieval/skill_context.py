@@ -27,11 +27,27 @@ from src.shared.llm.bedrock_client import BedrockRequestError, BedrockTextSettin
 
 log = logging.getLogger("skill_context")
 
+# Only application-authored validator messages may enter logs/repair feedback.
+# Pydantic's generic value_error hides these unless context is inspected.
+REVIEW_RULES = frozenset({
+    "Repeated selected chunk IDs",
+    "Selected chunks must be exactly the chunks supporting the claims",
+    "Insufficient evidence must not generate learning claims",
+    "Supported/partial context requires cited claims",
+    "Topic outlines support only partial context, not ready teaching content",
+})
+
 
 def _validation_issues(error):
     if isinstance(error, ValidationError):
-        return [".".join(map(str, item["loc"])) + ":" + item["type"]
-                for item in error.errors(include_input=False, include_context=False, include_url=False)[:8]]
+        issues = []
+        for item in error.errors(include_input=False, include_context=True, include_url=False)[:8]:
+            issue = (".".join(map(str, item["loc"])) or "review") + ":" + item["type"]
+            reason = str(item.get("ctx", {}).get("error", ""))
+            if reason in REVIEW_RULES:
+                issue += ": " + reason
+            issues.append(issue)
+        return issues
     return [str(error)[:200]]
 
 
@@ -159,6 +175,10 @@ are compatible. Always return valid JSON, not notes/comments inside the claims a
 Quotes must occur verbatim in the cited content (whitespace may differ); never stitch excerpts,
 paraphrase inside a quote, or cite IDs outside DATA. Each selected chunk must support a claim,
 and every citation must be selected. Do not generate a complete Roadmap or assign prerequisites.
+Before submitting, set selected_chunk_ids to the unique chunk IDs actually cited by the
+claims (not all retrieved candidates). Use partial if ANY claim is topic_outline;
+supported is only for instructional claims. For insufficient_evidence return empty claims
+and empty selected_chunk_ids. For supported/partial include at least one cited claim.
 """ + f"Select at most {request.policy.selected_limit} chunks.\nDATA:\n" + json.dumps(data, ensure_ascii=False)
     correction = ""
     schema = TextReview.model_json_schema()
@@ -167,6 +187,13 @@ and every citation must be selected. Do not generate a complete Roadmap or assig
     schema["$defs"]["LearningClaim"]["properties"]["text"]["maxLength"] = 600
     schema["$defs"]["LearningClaim"]["properties"]["citations"]["maxItems"] = 1
     schema["$defs"]["Citation"]["properties"]["quote"]["maxLength"] = 400
+    schema["$defs"]["Citation"]["properties"]["quote"]["description"] = (
+        "Copy one contiguous 20-400 character passage from content of the cited chunk_id. "
+        "Preserve source language and punctuation; never summarize, translate, or join separate passages."
+    )
+    chunk_ids = [chunk.chunk_id for chunk in chunks]
+    schema["$defs"]["Citation"]["properties"]["chunk_id"]["enum"] = chunk_ids
+    schema["properties"]["selected_chunk_ids"]["items"]["enum"] = chunk_ids
     definitions = schema.pop("$defs")
 
     def inline(node):
@@ -200,10 +227,14 @@ and every citation must be selected. Do not generate a complete Roadmap or assig
                 raise ValueError("Too many selected chunks")
             if not set(reviewed.selected_chunk_ids) <= set(by_id):
                 raise ValueError("Citation is outside the retrieved evidence")
-            for claim in reviewed.claims:
+            for index, claim in enumerate(reviewed.claims):
                 for citation in claim.citations:
                     if not same_quote(citation.quote, by_id[citation.chunk_id].content):
-                        raise ValueError("Citation quote is not verbatim in its retrieved chunk")
+                        raise ValueError(
+                            "Citation quote is not verbatim in its retrieved chunk; "
+                            f"claims.{index}.citations chunk_id={citation.chunk_id}. "
+                            "Copy one contiguous source passage; do not paraphrase, translate or join excerpts."
+                        )
             if (request.intent == "level_improvement" and "unknown" in {request.current_level, request.target_level}
                     and reviewed.status == "supported"):
                 raise ValueError("Unknown learner levels cannot support a calibrated level transition; preserve partial coverage")
