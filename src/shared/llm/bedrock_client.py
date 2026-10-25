@@ -32,10 +32,12 @@ class BedrockTextSettings(BaseSettings):
 class BedrockRequestError(RuntimeError):
     """Safe provider failure, without credentials, source documents or response bodies."""
 
-    def __init__(self, message: str, *, timeout: bool = False, retryable: bool = False, code: str | None = None):
+    def __init__(self, message: str, *, timeout: bool = False, retryable: bool = False,
+                 code: str | None = None, stop_reason: str | None = None):
         self.timeout = timeout
         self.retryable = retryable
         self.code = code
+        self.stop_reason = stop_reason
         super().__init__(message)
 
 
@@ -58,7 +60,7 @@ def create_bedrock_client(*, region: str, timeout_ms: int = 180_000):
 
 
 def converse_text(client, *, model_id: str, content: list[dict], system: str | None = None,
-                  output_schema: dict | None = None) -> TextResponse:
+                  output_schema: dict | None = None, output_tool_name: str = "submit_cv") -> TextResponse:
     request = dict(
         modelId=model_id, messages=[{"role": "user", "content": content}],
         inferenceConfig={"maxTokens": MAX_OUTPUT_TOKENS, "temperature": 0},
@@ -68,15 +70,15 @@ def converse_text(client, *, model_id: str, content: list[dict], system: str | N
     if output_schema is not None:
         request["toolConfig"] = {
             "tools": [{"toolSpec": {
-                "name": "submit_cv", "description": "Return the extracted CV using the required CV schema.",
+                "name": output_tool_name, "description": "Return the complete result using the required JSON schema.",
                 "inputSchema": {"json": output_schema},
             }}],
-            "toolChoice": {"tool": {"name": "submit_cv"}},
+            "toolChoice": {"tool": {"name": output_tool_name}},
         }
     try:
         response = client.converse(**request)
     except (ConnectTimeoutError, ReadTimeoutError, TimeoutError) as error:
-        raise BedrockRequestError("Bedrock request timed out.", timeout=True) from error
+        raise BedrockRequestError("Bedrock request timed out.", timeout=True, code="RequestTimeout") from error
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", "BedrockClientError"))
         if not code.isalnum():
@@ -92,16 +94,21 @@ def converse_text(client, *, model_id: str, content: list[dict], system: str | N
         if not error_type.isalnum():
             error_type = "BedrockClientError"
         raise BedrockRequestError(
-            f"Bedrock client error ({error_type}). Check AWS credentials, model access and region."
+            f"Bedrock client error ({error_type}). Check AWS credentials, model access and region.", code=error_type,
         ) from error
     expected_stop = "tool_use" if output_schema is not None else "end_turn"
     if response.get("stopReason") != expected_stop:
-        raise BedrockRequestError("Bedrock did not return a complete response.")
+        stop = response.get("stopReason")
+        safe_stop = stop if stop in {"end_turn", "tool_use", "max_tokens", "stop_sequence",
+                                    "guardrail_intervened", "content_filtered"} else "unknown"
+        raise BedrockRequestError("Bedrock did not return a complete response.",
+                                  code="IncompleteResponse", stop_reason=safe_stop)
     blocks = response.get("output", {}).get("message", {}).get("content", [])
     if output_schema is not None:
         tools = [block["toolUse"] for block in blocks if "toolUse" in block]
-        if len(tools) != 1 or tools[0].get("name") != "submit_cv" or not isinstance(tools[0].get("input"), dict):
-            raise BedrockRequestError("Bedrock did not return the required CV tool response.")
+        if len(tools) != 1 or tools[0].get("name") != output_tool_name or not isinstance(tools[0].get("input"), dict):
+            label = "CV" if output_tool_name == "submit_cv" else "structured"
+            raise BedrockRequestError(f"Bedrock did not return the required {label} tool response.", code="InvalidToolResponse")
         text = json.dumps(tools[0]["input"], ensure_ascii=False)
     else:
         text = "".join(block.get("text", "") for block in blocks)
@@ -111,7 +118,8 @@ def converse_text(client, *, model_id: str, content: list[dict], system: str | N
     return TextResponse(text, usage.get("inputTokens", 0), usage.get("outputTokens", 0))
 
 
-def nova_generate(prompt: str, *, timeout_ms: int = 90_000, model_id: str | None = None) -> str:
+def nova_generate(prompt: str, *, timeout_ms: int = 90_000, model_id: str | None = None,
+                  output_schema: dict | None = None, output_tool_name: str = "submit_cv") -> str:
     """Generate text with the shared Nova model; caller prompts/contracts stay unchanged."""
     cfg = BedrockTextSettings()
     client = create_bedrock_client(
@@ -123,6 +131,7 @@ def nova_generate(prompt: str, *, timeout_ms: int = 90_000, model_id: str | None
             client,
             model_id=model_id or cfg.model_id,
             content=[{"text": prompt}],
+            output_schema=output_schema, output_tool_name=output_tool_name,
         ).text
     finally:
         client.close()

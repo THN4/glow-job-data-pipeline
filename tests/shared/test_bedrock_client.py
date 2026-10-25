@@ -83,3 +83,26 @@ def test_missing_wrong_or_multiple_tool_results_rejected(tools):
     with pytest.raises(bedrock.BedrockRequestError, match="required CV tool"):
         bedrock.converse_text(client, model_id="test", content=[{"text": "CV"}],
                               output_schema={"type": "object", "properties": {}})
+
+
+def test_skill_review_tool_does_not_expect_cv_tool_and_ignores_commentary():
+    client = Mock()
+    client.converse.return_value = {"stopReason": "tool_use", "output": {"message": {"content": [
+        {"text": "```json invalid commentary```"},
+        {"toolUse": {"toolUseId": "review", "name": "submit_skill_context", "input": {"status": "partial"}}},
+    ]}}}
+    result = bedrock.converse_text(client, model_id="test", content=[{"text": "documents"}],
+                                  output_schema={"type": "object"}, output_tool_name="submit_skill_context")
+    assert result.text == '{"status": "partial"}'
+    assert client.converse.call_args.kwargs["toolConfig"]["toolChoice"] == {"tool": {"name": "submit_skill_context"}}
+
+
+def test_truncation_reports_safe_stop_reason_without_returning_partial_json():
+    client = Mock()
+    client.converse.return_value = {"stopReason": "max_tokens", "output": {"message": {
+        "content": [{"text": 'private incomplete response {"claims":'}]}}}
+    with pytest.raises(bedrock.BedrockRequestError) as failure:
+        bedrock.converse_text(client, model_id="test", content=[{"text": "private prompt"}])
+    assert failure.value.code == "IncompleteResponse"
+    assert failure.value.stop_reason == "max_tokens"
+    assert "private" not in str(failure.value)
