@@ -45,6 +45,31 @@ def test_review_still_rejects_unverifiable_claims(monkeypatch):
     assert generate.call_count == 2
 
 
+@pytest.mark.parametrize("explanation", [
+    "Learn how Git records changes to repository files.",
+    "เรียนรู้วิธีบันทึกการเปลี่ยนแปลงของไฟล์ด้วย Git",
+])
+def test_grounded_english_and_thai_claims_are_accepted_without_language_retry(explanation):
+    payload = json.loads(review())
+    payload["claims"][0]["text"] = explanation
+    generate = Mock(return_value=json.dumps(payload))
+    result = context.review_content({"skill_id": 1, "skill_name": "Git"},
+        ContextRequest(skill_ids=[1]), "Git", [chunk()], generate=generate)
+    assert result.claims[0].text == explanation
+    assert result.claims[0].citations[0].quote == QUOTE
+    assert generate.call_count == 1
+
+
+def test_english_claim_still_requires_a_verbatim_citation():
+    payload = json.loads(review("This sentence does not occur in the source."))
+    payload["claims"][0]["text"] = "Learn how Git records changes to repository files."
+    generate = Mock(return_value=json.dumps(payload))
+    with pytest.raises(ValueError, match="not verbatim"):
+        context.review_content({"skill_id": 1, "skill_name": "Git"},
+            ContextRequest(skill_ids=[1]), "Git", [chunk()], generate=generate)
+    assert generate.call_count == 2
+
+
 def test_query_embedding_still_uses_original_gemini_model_and_dimensions(monkeypatch):
     client = Mock()
     client.models.embed_content.return_value = SimpleNamespace(
